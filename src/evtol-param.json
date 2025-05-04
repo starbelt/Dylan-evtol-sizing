@@ -1,0 +1,92 @@
+{
+  "g_m_p_s2": 9.81,
+  "air_density_sea_level_kg_p_m3": 1.225,
+  "air_density_cruise_kg_p_m3": 1.056,
+  "air_density_min_kg_p_m3": 1.056, 
+  "sound_speed_m_p_s": 340.0,
+
+ 
+  "total_payload_kg": 453.0,
+  "fixed_systems_kg": 307.0, 
+  "initial_mtow_guess_kg": 3000.0, 
+
+
+  "initial_battery_mass_fraction_guess": 0.3, 
+  "cell_voltage": 3.7,
+  "cell_charge_ah": 22.411,
+  "cell_mass_kg": 0.3559,
+  "cell_to_pack_mass_ratio": 0.72,
+  "batt_soh": 0.8, 
+  "batt_inacc_energy_frac": 0.035714286,
+  "system_voltage": 710.0,
+  "max_dod":0.8,
+
+ 
+  "epu_effic": 0.92,
+  "prop_effic": 0.85,
+
+
+  "rotor_count": 12, 
+  "lift_rotor_count": 6, 
+  "tilt_rotor_count": 6, 
+  "rotor_diameter_m": 2.0,
+  "tip_mach": 0.52,
+  "rotor_avg_cl": 0.75,
+
+
+  "d_value_m": 15.24, 
+  "wing_taper_ratio": 0.4,
+  "wing_t_p_c": 0.12143,
+  "wing_airfoil_cd_at_cruise_cl": 0.007, 
+  "spac_effic_factor": 0.8, 
+  "horiz_tail_vol_coeff": 0.62,
+  "vert_tail_vol_coeff": 0.054,
+  "empennage_airfoil_cd0": 0.006,
+
+
+  "fuselage_l_m": 10.0,
+  "fuselage_w_m": 1.22,
+  "fuselage_h_m": 1.8,
+
+
+  "vehicle_cl_max": 1.5, 
+  "stall_speed_m_p_s": 40.0,
+
+
+  "landing_gear_drag_area_m2": 0.08,
+  "boom_drag_area": 50.6, 
+  "excres_protub_factor": 1.01,
+  "trim_drag_factor": 1.01,
+
+
+  "kinematic_visc_sea_level_m2_p_s": 1.46e-5,
+  "kinematic_visc_cruise_alt_m2_p_s" : 1.789e-5, 
+  "rho_sl": 1.225,
+
+
+  "fom": 0.74, 
+  "hover_duration_s": 90.0, 
+  "roc_mps": 5.0, 
+  "hover_alt_m": 15.0, 
+  "cruise_alt_m": 1219.2, 
+  "climb_speed_m_p_s": 66.9444, 
+  "cruise_speed_m_p_s": 66.9444,
+  "target_range_km":64.37380, 
+  "reserve_hover_dur_s": 45.0, 
+  "reserve_range_km": 13.0, 
+
+  "shorter_range_km":30,
+  "jettison_opt_enable": true,
+  "jettison_opt_batt_mass_max_kg": 400.0,
+  "jettison_opt_batt_mass_step_kg": 10.0 ,
+  "jettison_opt_time_start_s": 0.0 ,
+  "jettison_opt_time_end_s": 3600.0,
+  "jettison_opt_time_step_s": 1.0,
+
+  "enable_lifting_abu_scenario": true,     
+  "num_lift_systems_to_replace": 4,        
+  "total_abu_mass_kg": 200.0,              
+  "lifting_abu_jettison_time_s": 45.0
+
+
+}

@@ -53,28 +53,55 @@ if __name__ == "__main__":
     # --- Initialization Phase ---
     # 1. Component Instantiation
     print("Initializing components...")
+    
+    # Load configuration to get rotor counts
+    with open(path_to_json, "r") as f:
+        config = json.load(f)
+    
+    lift_rotor_count = config.get("lift_rotor_count", 0)
+    tilt_rotor_count = config.get("tilt_rotor_count", 0)
+    total_rotors = lift_rotor_count + tilt_rotor_count
+    config_rotor_count = config.get("rotor_count", 0)
+    
+    if total_rotors != config_rotor_count:
+        print(f"Warning: lift_rotor_count ({lift_rotor_count}) + tilt_rotor_count ({tilt_rotor_count}) != rotor_count ({config_rotor_count}) in JSON.")
+        print(f"         Using total_rotors = {total_rotors} for component weight/drag division.")
+    elif total_rotors == 0:
+        print("Warning: total_rotors is 0. Cannot divide component weight/drag.")
+    
+    # Initialize core components
     wing = Wing(path_to_json)
     fuselage = Fuselage(path_to_json)
     horizontaltail = HorizontalTail(path_to_json)
     verticaltail = VerticalTail(path_to_json)
     landinggear = LandingGear(path_to_json)
-    boom = Boom(path_to_json)
-    tilt_rotor = TiltRotor(path_to_json) 
-    lift_rotor = LiftRotor(path_to_json) 
-    battery_instance = Battery(path_to_json) 
-
-    # All ccmponents that contribute to aircraft weight/performance
+    battery_instance = Battery(path_to_json)
+    
+    # Initialize list with core components
     aircraft_components = [
-        wing, fuselage, horizontaltail, verticaltail, landinggear,
-        boom, tilt_rotor, lift_rotor, battery_instance
+        wing, fuselage, horizontaltail, verticaltail, landinggear, battery_instance
     ]
+    
+    # Add Tilt Rotors
+    print(f"Adding {tilt_rotor_count} TiltRotors...")
+    for _ in range(tilt_rotor_count):
+        aircraft_components.append(TiltRotor(path_to_json))
+    
+    # Add Lift Rotors and corresponding Booms
+    print(f"Adding {lift_rotor_count} LiftRotors and {lift_rotor_count + tilt_rotor_count} Booms...")
+    for _ in range(lift_rotor_count):
+        aircraft_components.append(LiftRotor(path_to_json))
+    
+    # Add one boom per rotor (both lift and tilt)
+    for _ in range(total_rotors):
+        aircraft_components.append(Boom(path_to_json))
 
     for i, component in enumerate(aircraft_components):
         if not isinstance(component, AircraftComponent): 
             print(f"ERROR: Item at index {i} ({type(component).__name__}) is not a valid AircraftComponent.")
             sys.exit(1)
         component.load_variables_from_json()
-    print("Components initialized.")
+    print(f"Components initialized: {len(aircraft_components)} total components")
 
     # 2. Aircraft Instance
     aircraft = Aircraft(components=aircraft_components, path_to_json=path_to_json)
@@ -132,13 +159,84 @@ if __name__ == "__main__":
             if (hasattr(aircraft, 'max_dod') and aircraft.max_dod > 0 and
                 final_energy is not None and final_spec_e > 0):
 
-                final_req_total_usable_kwh = final_energy / aircraft.max_dod
+                # Separate non-reserve energy and reserve energy
+                non_reserve_energy_kwh = 0.0
+                reserve_energy_kwh = 0.0
+                
+                for segment, result in zip(mission.mission_segments, mission.segment_results):
+                    from missionsegment import ReserveSegment
+                    if isinstance(segment, ReserveSegment):
+                        reserve_energy_kwh += result.get('Energy (kWh)', 0.0)
+                    else:
+                        non_reserve_energy_kwh += result.get('Energy (kWh)', 0.0)
+                
+                # Apply max_dod only to non-reserve energy
+                required_non_reserve_capacity_kwh = non_reserve_energy_kwh / aircraft.max_dod
+                final_req_total_usable_kwh = required_non_reserve_capacity_kwh + reserve_energy_kwh
+                
+                print(f"  Non-Reserve Energy: {non_reserve_energy_kwh:.3f} kWh, Reserve Energy: {reserve_energy_kwh:.3f} kWh")
+                print(f"  Required Capacity (with DoD={aircraft.max_dod:.2f}): {final_req_total_usable_kwh:.3f} kWh")
+                
                 final_batt_mass = (final_req_total_usable_kwh * W_PER_KW) / final_spec_e
 
                 # Update the battery mass and internal state one last time
                 aircraft.battery.final_batt_mass_kg = final_batt_mass
                 aircraft.battery.UpdateComponent({'mtow_kg': final_mtow})
                 print(f"  Final battery mass recalculated based on final energy: {final_batt_mass:.2f} kg")
+                
+                # Additional consistency loop to reconcile battery mass with MTOW
+                print("\n--- Running consistency iterations after battery recalculation ---")
+                consistency_iterations = 0
+                max_consistency_iterations = 100
+                consistency_tolerance = TOLERANCE
+                previous_mtow = final_mtow
+                
+                while consistency_iterations < max_consistency_iterations:
+                    # Recalculate MTOW with the updated battery mass
+                    new_mtow = aircraft.CalculateMTOW()
+                    mtow_diff = abs(new_mtow - previous_mtow)
+                    print(f"  Consistency iter {consistency_iterations+1}: MTOW = {new_mtow:.2f} kg (Δ = {mtow_diff:.2f} kg)")
+                    
+                    if mtow_diff < consistency_tolerance:
+                        print(f"  Consistency achieved! Final MTOW: {new_mtow:.2f} kg")
+                        final_mtow = new_mtow
+                        break
+                    
+                    # Update aircraft state with the new MTOW
+                    aircraft.update_state_for_iteration(new_mtow)
+                    
+                    # Run mission again to get updated energy requirements
+                    mission.run_mission()
+                    if not mission.is_calculated:
+                        print("  Warning: Mission calculation failed during consistency iteration")
+                        break
+                        
+                    # Calculate new battery mass based on updated mission energy
+                    non_reserve_energy_kwh = 0.0
+                    reserve_energy_kwh = 0.0
+                    for segment, result in zip(mission.mission_segments, mission.segment_results):
+                        if isinstance(segment, ReserveSegment):
+                            reserve_energy_kwh += result.get('Energy (kWh)', 0.0)
+                        else:
+                            non_reserve_energy_kwh += result.get('Energy (kWh)', 0.0)
+                    
+                    req_total_usable_kwh = (non_reserve_energy_kwh / aircraft.max_dod) + reserve_energy_kwh
+                    new_batt_mass = (req_total_usable_kwh * W_PER_KW) / final_spec_e
+                    
+                    print(f"    Updated energy: {non_reserve_energy_kwh + reserve_energy_kwh:.2f} kWh")
+                    print(f"    Updated battery mass: {new_batt_mass:.2f} kg (previous: {aircraft.battery.weight:.2f} kg)")
+                    
+                    # Update battery mass
+                    aircraft.battery.final_batt_mass_kg = new_batt_mass
+                    aircraft.battery.UpdateComponent({'mtow_kg': new_mtow})
+                    
+                    previous_mtow = new_mtow
+                    consistency_iterations += 1
+                
+                if consistency_iterations == max_consistency_iterations:
+                    print(f"  Reached max consistency iterations. Final MTOW: {new_mtow:.2f} kg")
+                    final_mtow = new_mtow
+                
             else:
                  print("  Warning: Could not perform final battery mass recalculation due to missing data.")
 
@@ -191,16 +289,43 @@ if __name__ == "__main__":
             calculated_sum = 0.0
             total_payload_kg = getattr(aircraft, 'total_payload_kg', 0.0)
             fixed_systems_kg = getattr(aircraft, 'fixed_systems_kg', 0.0)
-
+            
+            # Initialize total weights for rotors and booms
+            lift_rotors_total_kg = 0.0
+            tilt_rotors_total_kg = 0.0
+            booms_total_kg = 0.0
+            
+            # Group components by type
             for comp in aircraft.components:
-                 try:
+                try:
                     # Use the 'weight' attribute directly after UpdateComponent calls
                     w = comp.weight if hasattr(comp, 'weight') else 0.0
-                    weight_data.append([type(comp).__name__, f"{w:.2f}"])
-                    calculated_sum += w
-                 except Exception as e:
+                    
+                    # Group rotors and booms
+                    if isinstance(comp, LiftRotor):
+                        lift_rotors_total_kg += w
+                    elif isinstance(comp, TiltRotor):
+                        tilt_rotors_total_kg += w
+                    elif isinstance(comp, Boom):
+                        booms_total_kg += w
+                    else:
+                        # Add other components individually
+                        weight_data.append([type(comp).__name__, f"{w:.2f}"])
+                        calculated_sum += w
+                except Exception as e:
                     print(f"Warning: Error getting weight for {type(comp).__name__}: {e}")
                     weight_data.append([type(comp).__name__, "Error"])
+            
+            # Add grouped components to weight data
+            if lift_rotors_total_kg > 0:
+                weight_data.append(["LiftRotors (Total)", f"{lift_rotors_total_kg:.2f}"])
+                calculated_sum += lift_rotors_total_kg
+            if tilt_rotors_total_kg > 0:
+                weight_data.append(["TiltRotors (Total)", f"{tilt_rotors_total_kg:.2f}"])
+                calculated_sum += tilt_rotors_total_kg
+            if booms_total_kg > 0:
+                weight_data.append(["Booms (Total)", f"{booms_total_kg:.2f}"])
+                calculated_sum += booms_total_kg
 
             weight_data.append(["Total Payload", f"{total_payload_kg:.2f}"])
             weight_data.append(["Fixed Systems", f"{fixed_systems_kg:.2f}"])
@@ -278,6 +403,16 @@ if __name__ == "__main__":
         traceback.print_exc()
     finally:
         print("\n--- End of Aircraft Sizing Simulation ---")
+
+
+
+
+
+
+
+
+
+
 
 
 # --- ABU Optimization Section (Remains mostly unchanged) ---

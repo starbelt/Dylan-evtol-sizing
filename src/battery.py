@@ -1,3 +1,4 @@
+
 # battery.py
 import json
 import math
@@ -10,6 +11,7 @@ class Battery(AircraftComponent):
     def __init__(self, path_to_json: str):
         super().__init__(path_to_json)
         self.final_batt_mass_kg: float = 0.0 # set by the sizing loop in the excecution code
+        self.parallel_modules: int = 1  # Number of parallel battery modules for C-rate management
 
         # Cell properties loaded from JSON
         self.cell_voltage: float = 0.0
@@ -123,5 +125,25 @@ class Battery(AircraftComponent):
     # C-rate is based on the EOL energy
     # BOL energy might be more common to calculate C-rate though
     def calculate_c_rate(self, power_kw: float) -> float:
+        """Calculate C-rate, accounting for parallel modules if present."""
         eol_capacity_kwh = self.get_gross_EOL_capacity_kwh()
-        return power_kw / eol_capacity_kwh 
+        
+        # If we have parallel modules, divide the power among them
+        if hasattr(self, 'parallel_modules') and self.parallel_modules > 1:
+            # Power is distributed across modules
+            power_per_module = power_kw / self.parallel_modules
+            # Capacity per module is total capacity / modules
+            return power_per_module / (eol_capacity_kwh / self.parallel_modules)
+        else:
+            # Standard calculation for a single module
+            return power_kw / eol_capacity_kwh
+    
+    def calculate_min_capacity_for_c_rate(self, power_kw: float, max_c_rate: float) -> float:
+        """Calculate minimum capacity needed to stay within maximum C-rate for a given power."""
+        if max_c_rate <= 0:
+            return 0.0  # Invalid C-rate
+        return power_kw / max_c_rate
+    
+    def get_module_count(self) -> int:
+        """Return the number of parallel battery modules."""
+        return getattr(self, 'parallel_modules', 1)

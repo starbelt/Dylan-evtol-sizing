@@ -11,7 +11,7 @@ def calculate_climb_power_kw(mtow_kg, target_speed_mps, rate_of_climb_mps, rho, 
 
     # --- Calculate Climb Angle ---
     # Ensure speed is high enough to calculate angle; avoid division by zero if speed is exactly min_valid_speed
-    effective_speed =target_speed_mps
+    effective_speed = target_speed_mps
 
     sin_gamma = rate_of_climb_mps / effective_speed
     # Clamp argument to avoid domain errors due to potential floating point inaccuracies
@@ -46,8 +46,6 @@ def calculate_climb_power_kw(mtow_kg, target_speed_mps, rate_of_climb_mps, rho, 
     # --- Convert to kW and Return ---
     electric_power_req_kw = electric_power_req_w / 1000.0
     return max(0.0, electric_power_req_kw)
-
-
 
 # --- Simulation Parameters ---
 mtow = 1500         # kg
@@ -102,7 +100,7 @@ for t in time_points:
     # Calculate instantaneous speed along flight path
     current_speed_mps = start_speed_mps + acceleration_mps2 * t
     # Ensure we don't exceed cruise speed due to floating point steps
-    current_speed_mps =cruise_speed_mps
+    current_speed_mps = min(current_speed_mps, cruise_speed_mps)
 
     # Calculate power required at this instantaneous speed and ROC
     power_kw = calculate_climb_power_kw(

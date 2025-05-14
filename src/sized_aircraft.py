@@ -1,16 +1,12 @@
 # Performs the complete aircraft sizing process and returns the sized aircraft and mission
 
 
-
-
 import json
-import math
-import sys
+
 import traceback
 import argparse 
 from tabulate import tabulate 
-# Import mission segment classes directly into the module namespace
-import missionsegment  
+import missionsegment
 from missionsegment import Mission, HoverSegment, ClimbSegment, CruiseSegment, ReserveSegment, ShorterRangeMission
 from base_component import AircraftComponent 
 from aircraft import Aircraft, Wing, Fuselage, HorizontalTail, VerticalTail, LandingGear, Boom, LiftRotor, TiltRotor
@@ -23,7 +19,6 @@ from tabulate import tabulate
 
 W_PER_KW = 1000.0
 DEFAULT_JSON_PATH = "evtol-param.json"
-
 def size_aircraft(path_to_json, max_iterations=1000, tolerance=0.1, damping=0.3, display_results=True):
     if display_results:
         print("--- eVTOL Aircraft Sizing Simulation ---")
@@ -39,10 +34,9 @@ def size_aircraft(path_to_json, max_iterations=1000, tolerance=0.1, damping=0.3,
     with open(path_to_json, "r") as f:
         config = json.load(f)
     
-    lift_rotor_count = config.get("lift_rotor_count", 0)
-    tilt_rotor_count = config.get("tilt_rotor_count", 0)
+    lift_rotor_count = config.get("lift_rotor_count")
+    tilt_rotor_count = config.get("tilt_rotor_count")
     total_rotors = lift_rotor_count + tilt_rotor_count
-    config_rotor_count = config.get("rotor_count", 0)
     
     wing = Wing(path_to_json)
     fuselage = Fuselage(path_to_json)
@@ -51,41 +45,32 @@ def size_aircraft(path_to_json, max_iterations=1000, tolerance=0.1, damping=0.3,
     landinggear = LandingGear(path_to_json)
     battery_instance = Battery(path_to_json)
     
-    # Initialize list with core components
     aircraft_components = [
         wing, fuselage, horizontaltail, verticaltail, landinggear, battery_instance
     ]
     
     # Add Tilt Rotors
-    if display_results:
-        print(f"Adding {tilt_rotor_count} TiltRotors...")
     for _ in range(tilt_rotor_count):
         aircraft_components.append(TiltRotor(path_to_json))
     
     # Add Lift Rotors 
-    if display_results:
-        print(f"Adding {lift_rotor_count} LiftRotors and {total_rotors} Booms...")
     for _ in range(lift_rotor_count):
         aircraft_components.append(LiftRotor(path_to_json))
     
-    # Add one boom per rotor (both lift and tilt)
+    # Add one boom per rotor (to both lift and tilt)
     for _ in range(total_rotors):
         aircraft_components.append(Boom(path_to_json))
 
     for i, component in enumerate(aircraft_components):
-        if not isinstance(component, AircraftComponent): 
-            if display_results:
-                print(f"ERROR: Item at index {i} ({type(component).__name__}) is not a valid AircraftComponent.")
-            return None, None, None, False
         component.load_variables_from_json()
     
     if display_results:
         print(f"Components initialized: {len(aircraft_components)} total components")
 
-    # 2. Aircraft 
+    # Aircraft 
     aircraft = Aircraft(components=aircraft_components, path_to_json=path_to_json)
 
-    # 3. Mission Segments & Mission 
+    # Mission Segments & Mission 
     mission_segments = [
         HoverSegment(path_to_json, segment_type="Takeoff Hover"),
         ClimbSegment(path_to_json),
@@ -93,7 +78,7 @@ def size_aircraft(path_to_json, max_iterations=1000, tolerance=0.1, damping=0.3,
         HoverSegment(path_to_json, segment_type="Landing Hover"),
         ReserveSegment(path_to_json)
     ]
-    # Pass the aircraft instance to the Mission
+    # Pass the aircraft into Mission
     mission = Mission(aircraft=aircraft, mission_segments=mission_segments)
 
     # MTOW convergence using iterative sizer class
@@ -112,132 +97,70 @@ def size_aircraft(path_to_json, max_iterations=1000, tolerance=0.1, damping=0.3,
             print("-" * 60)
 
         # --- Final Update & Results Display ---
-        if display_results:
-            print("Performing final state update with converged/final MTOW...")
-        
+        print("Performing final state update with converged/final MTOW...")
         # Final update of all components based on the final MTOW
         aircraft.update_state_for_iteration(final_mtow)
 
         # Re-run mission and resize battery one last time based on final MTOW
         aircraft.battery.UpdateComponent({'mtow_kg': final_mtow})
+        print(f"  Final battery state updated. BOL Cap: {aircraft.battery.get_gross_BOL_capacity_kwh():.2f} kWh")
         
-        if display_results:
-            print(f"  Final battery state updated. BOL Cap: {aircraft.battery.get_gross_BOL_capacity_kwh():.2f} kWh")
-
-        # Re-run mission with the final aircraft state
+        # Recalculate MTOW based on updated component weights including adjusted battery mass
+        final_mtow = aircraft.CalculateMTOW()
+        print(f"  Recalculated final MTOW after battery update: {final_mtow:.2f} kg")
+        
+        # CRITICAL FIX: Update the aircraft state again with the recalculated MTOW
+        aircraft.mtow_kg = final_mtow  # Ensure aircraft object has the updated MTOW
+        aircraft.update_state_for_iteration(final_mtow)  # Update all components with new MTOW
+        print(f"  Aircraft state updated with recalculated MTOW: {final_mtow:.2f} kg")
+        
+        # Re-run mission with the final aircraft state using updated MTOW
+        print(f"  Running mission simulation with final MTOW: {final_mtow:.2f} kg")
         mission.run_mission()
         
-        if not mission.is_calculated:
-            if display_results:
-                print("Warning: Final mission run failed.")
-            return aircraft, mission, final_mtow, converged
-            
-        # Recalculate final battery mass based on this final energy demand
-        final_energy = mission.total_energy_kwh
-        final_spec_e = aircraft.battery.get_usable_EOL_spec_energy()
+        # Make a FINAL MTOW calculation after running the mission to ensure 
+        # it captures any components that may have been updated during the mission
+        final_mtow = aircraft.CalculateMTOW()
+        print(f"  Final MTOW after mission simulation: {final_mtow:.2f} kg")
         
-        if (hasattr(aircraft, 'max_dod') and aircraft.max_dod > 0 and
-            final_energy is not None and final_spec_e > 0):
-
-            # Separate non-reserve energy and reserve energy
-            non_reserve_energy_kwh = 0.0
-            reserve_energy_kwh = 0.0
-            
-            for segment, result in zip(mission.mission_segments, mission.segment_results):
-                # Use the imported ReserveSegment directly instead of reimporting
-                if isinstance(segment, ReserveSegment):
-                    reserve_energy_kwh += result.get('Energy (kWh)', 0.0)
-                else:
-                    non_reserve_energy_kwh += result.get('Energy (kWh)', 0.0)
-            
-            # Apply max_dod only to non-reserve energy
-            required_non_reserve_capacity_kwh = non_reserve_energy_kwh / aircraft.max_dod
-            final_req_total_usable_kwh = required_non_reserve_capacity_kwh + reserve_energy_kwh
-            
-            if display_results:
-                print(f"  Non-Reserve Energy: {non_reserve_energy_kwh:.3f} kWh, Reserve Energy: {reserve_energy_kwh:.3f} kWh")
-                print(f"  Required Capacity (with DoD={aircraft.max_dod:.2f}): {final_req_total_usable_kwh:.3f} kWh")
-            
-            final_batt_mass = (final_req_total_usable_kwh * W_PER_KW) / final_spec_e
-
-            # Update the battery mass and internal state one last time
-            aircraft.battery.final_batt_mass_kg = final_batt_mass
-            aircraft.battery.UpdateComponent({'mtow_kg': final_mtow})
-            
-            if display_results:
-                print(f"  Final battery mass recalculated based on final energy: {final_batt_mass:.2f} kg")
-                print("\n--- Running consistency iterations after battery recalculation ---")
-            
-            consistency_iterations = 0
-            max_consistency_iterations = 100
-            consistency_tolerance = tolerance
-            previous_mtow = final_mtow
-            
-            while consistency_iterations < max_consistency_iterations:
-                # Recalculate MTOW with the updated battery mass
-                new_mtow = aircraft.CalculateMTOW()
-                mtow_diff = abs(new_mtow - previous_mtow)
-                
-                if display_results:
-                    print(f"  Consistency iter {consistency_iterations+1}: MTOW = {new_mtow:.2f} kg (Δ = {mtow_diff:.2f} kg)")
-                
-                if mtow_diff < consistency_tolerance:
-                    if display_results:
-                        print(f"  Consistency achieved! Final MTOW: {new_mtow:.2f} kg")
-                    final_mtow = new_mtow
-                    break
-                
-                # Update aircraft state with the new MTOW
-                aircraft.update_state_for_iteration(new_mtow)
-                
-                # Run mission again to get updated energy requirements
-                mission.run_mission()
-                if not mission.is_calculated:
-                    if display_results:
-                        print("  Warning: Mission calculation failed during consistency iteration")
-                    break
-                    
-                # Calculate new battery mass based on updated mission energy
-                non_reserve_energy_kwh = 0.0
-                reserve_energy_kwh = 0.0
-                for segment, result in zip(mission.mission_segments, mission.segment_results):
-                    if isinstance(segment, ReserveSegment):
-                        reserve_energy_kwh += result.get('Energy (kWh)', 0.0)
-                    else:
-                        non_reserve_energy_kwh += result.get('Energy (kWh)', 0.0)
-                
-                req_total_usable_kwh = (non_reserve_energy_kwh / aircraft.max_dod) + reserve_energy_kwh
-                new_batt_mass = (req_total_usable_kwh * W_PER_KW) / final_spec_e
-                
-                if display_results:
-                    print(f"    Updated energy: {non_reserve_energy_kwh + reserve_energy_kwh:.2f} kWh")
-                    print(f"    Updated battery mass: {new_batt_mass:.2f} kg (previous: {aircraft.battery.weight:.2f} kg)")
-                
-                # Update battery mass
-                aircraft.battery.final_batt_mass_kg = new_batt_mass
-                aircraft.battery.UpdateComponent({'mtow_kg': new_mtow})
-                
-                previous_mtow = new_mtow
-                consistency_iterations += 1
-            
-            if consistency_iterations == max_consistency_iterations:
-                if display_results:
-                    print(f"  Reached max consistency iterations. Final MTOW: {new_mtow:.2f} kg")
-                final_mtow = new_mtow
-            
-        else:
-             if display_results:
-                 print("  Warning: Could not perform final battery mass recalculation due to missing data.")
-
-        # Final check of calculated MTOW vs the converged/final value using the sizer
-        final_mtow_check, mtow_consistent = sizer.verify_final_mtow(aircraft, final_mtow, tolerance_factor=2.0)
+        # Add a final convergence loop to ensure MTOW is completely stable
+        print("\n=== Starting Final MTOW Convergence Loop ===")
+        final_convergence_iters = 0
+        final_max_iters = 5  # Usually 2-3 iterations should be enough
+        final_mtow_prev = final_mtow
+        final_mtow_converged = False
         
-        # Display detailed results if requested
-        if display_results:
-            display_final_results(aircraft, mission, final_mtow_check)
+        while final_convergence_iters < final_max_iters and not final_mtow_converged:
+            # Update aircraft state with latest MTOW
+            print(f"  Final convergence iteration {final_convergence_iters + 1}...")
+            aircraft.mtow_kg = final_mtow
+            aircraft.update_state_for_iteration(final_mtow)
+            
+            # Re-run the mission
+            print(f"  Re-running mission with MTOW: {final_mtow:.2f} kg")
+            mission.run_mission()
+            
+            # Recalculate MTOW
+            new_final_mtow = aircraft.CalculateMTOW()
+            mtow_diff = abs(new_final_mtow - final_mtow_prev)
+            print(f"  Updated MTOW: {new_final_mtow:.2f} kg (change: {mtow_diff:.2f} kg)")
+            
+            # Check for convergence
+            if mtow_diff < tolerance:
+                print(f"  Final MTOW convergence achieved after {final_convergence_iters + 1} iterations")
+                final_mtow_converged = True
+            
+            final_mtow = new_final_mtow
+            final_mtow_prev = final_mtow
+            final_convergence_iters += 1
         
-        # Return the sized aircraft, mission, and final MTOW
-        return aircraft, mission, final_mtow_check, converged
+        if not final_mtow_converged:
+            print(f"  Warning: Final MTOW did not fully converge after {final_max_iters} iterations")
+            print(f"  Using final value: {final_mtow:.2f} kg")
+        
+        print("=== Final MTOW Convergence Loop Complete ===\n")
+        
+        return aircraft, mission, final_mtow, converged
 
     except Exception as err:
         if display_results:
@@ -399,7 +322,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-i", "--max_iter",
-        type=int, default=1000
+        type=int, default=10000
     )
     parser.add_argument(
         "-t", "--tolerance",
@@ -419,6 +342,7 @@ if __name__ == "__main__":
             args.damping,
             display_results=True
         )
+        
         if not converged:
             print("Warning: Sizing process did not fully converge.")
     except Exception as main_err:
@@ -426,5 +350,6 @@ if __name__ == "__main__":
         traceback.print_exc()
     finally:
         print("\n--- End of Aircraft Sizing Simulation ---")
+        display_final_results(aircraft, mission, final_mtow)
 
 

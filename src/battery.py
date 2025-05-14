@@ -1,4 +1,3 @@
-
 # battery.py
 import json
 import math
@@ -80,12 +79,17 @@ class Battery(AircraftComponent):
         self.weight = self.final_batt_mass_kg
 
         # Calculate Cell Configuration based on Mass 
-        self.cells_series = math.ceil(self.system_voltage / self.cell_voltage)
+        self.cells_series = math.floor(self.system_voltage / self.cell_voltage)
         self.total_cell_mass_kg = self.final_batt_mass_kg * self.cell_to_pack_mass_ratio
-        initial_cell_count_estimate = math.ceil(self.total_cell_mass_kg / self.cell_mass_kg) 
+        initial_cell_count_estimate = math.floor(self.total_cell_mass_kg / self.cell_mass_kg) 
 
         self.cells_parallel = (initial_cell_count_estimate // self.cells_series) + 1
         self.cell_count = self.cells_series * self.cells_parallel # Final cell count
+
+        # Recalculate final battery mass based on actual cell count for consistency
+        self.total_cell_mass_kg = self.cell_count * self.cell_mass_kg
+        self.weight = self.total_cell_mass_kg / self.cell_to_pack_mass_ratio
+        self.final_batt_mass_kg = self.weight  # Update final_batt_mass_kg to match
 
         # Recalculates final BOL capacity using the final cell count 
         self.gross_BOL_kWh = (self.cells_series * self.cell_voltage *

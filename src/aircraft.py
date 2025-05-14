@@ -9,33 +9,26 @@ from battery import Battery
 from typing import Optional
 
 
-# --- Constants ---
+# Constants 
 G = 9.81
 H_PER_S = 1.0 / 3600.0
 W_PER_KW = 1000.0
 
-def calc_single_EPU_weight_kg(motor_torque_max_thrust_Nm: float, motor_mechanical_power_sizing_k_W: float) -> float:
-    power_term = motor_mechanical_power_sizing_k_W
-    torque_term = motor_torque_max_thrust_Nm
-    weight_kg = 1.15 * (power_term / 12.67 + torque_term / 52.2 + 2.55)
-    return weight_kg 
-
-
-# --- wing class
+# wing class
 class Wing(AircraftComponent):
     def  __init__(self, path_to_json: str):
         super().__init__(path_to_json)
-        self.wingspan_m: float = 0.0
-        self.wing_ref_area_m2: float = 0.0
-        self.wing_AR: float = 0.0
-        self.wing_loading_kg_p_m2: float = 0.0
-        self.wing_loading_english: float = 0.0
-        self.wing_Cd0: float = 0.0
-        self.wing_root_chord_m: float = 0.0
-        self.wing_MAC: float = 0.0
-        self.wing_tip_chord_m: float = 0.0
-        self.wing_cruise_reynolds: float = 0.0
-        self.wing_stall_reynolds: float = 0.0
+        self.wingspan_m = 0.0
+        self.wing_ref_area_m2 = 0.0
+        self.wing_AR = 0.0
+        self.wing_loading_kg_p_m2 = 0.0
+        self.wing_loading_english = 0.0
+        self.wing_Cd0 = 0.0
+        self.wing_root_chord_m = 0.0
+        self.wing_MAC = 0.0
+        self.wing_tip_chord_m = 0.0
+        self.wing_cruise_reynolds = 0.0
+        self.wing_stall_reynolds = 0.0
 
     def UpdateComponent(self, aircraft_state: dict):
         self.load_variables_from_json()
@@ -107,18 +100,18 @@ class Wing(AircraftComponent):
         weight = 5.66411 * term1 * ((3.8 * 1.5) ** 0.39579) * term3 * term4 * term5 * 0.9 * 0.4536
         return weight
 
-# --- fuselage class
+# fuselage class
 class Fuselage(AircraftComponent):
     def __init__(self, path_to_json: str):
         super().__init__(path_to_json)
-        self.fuselage_fineness_ratio: float = 0.0
-        self.fuselage_reynolds: float = 0.0
-        self.fuselage_Cd0_p_Cf: float = 0.0
-        self.fuselage_Cf: float = 0.0
-        self.fuselage_reference_area_m2: float = 0.0
-        self.fuselage_wetted_area_m2: float = 0.0
-        self.fuselage_CdA: float = 0.0
-        self.fuselage_Cd0: float = 0.0
+        self.fuselage_fineness_ratio = 0.0
+        self.fuselage_reynolds = 0.0
+        self.fuselage_Cd0_p_Cf = 0.0
+        self.fuselage_Cf = 0.0
+        self.fuselage_reference_area_m2 = 0.0
+        self.fuselage_wetted_area_m2 = 0.0
+        self.fuselage_CdA = 0.0
+        self.fuselage_Cd0 = 0.0
 
     def UpdateComponent(self, aircraft_state: dict):
         self.load_variables_from_json()
@@ -147,7 +140,6 @@ class Fuselage(AircraftComponent):
         return (l * v) / nu
     
     def calc_fuselage_Cd0_p_Cf(self, fr):
-        if fr <= 1e-6: return 0.0
         t1=3*fr
         t2=4.5/math.sqrt(fr)
         t3=21/(fr**2)
@@ -175,14 +167,14 @@ class Fuselage(AircraftComponent):
         term_L_base = l * 0.5 * 3.2808
         term_q_base = 0.5 * rho * v ** 2 * 0.0209
         weight = (0.052 * (swet*3.2808**2)**1.086 * (3.8*1.5*mtow*2.2046)**0.177 * (term_L_base)**-0.051 * (fr)**-0.072 * (term_q_base)**0.241 * 0.4536*0.9)
-        return max(0.0, weight)
+        return weight
 
-# --- horziontal tail class
+# horziontal tail class
 class HorizontalTail(AircraftComponent):
     def __init__(self, path_to_json: str):
         super().__init__(path_to_json)
-        self.horizontal_tail_area_m2: float = 0.0
-        self.horizontal_tail_Cd0: float = 0.0
+        self.horizontal_tail_area_m2 = 0.0
+        self.horizontal_tail_Cd0 = 0.0
 
     def UpdateComponent(self, aircraft_state: dict):
         self.load_variables_from_json()
@@ -200,9 +192,9 @@ class HorizontalTail(AircraftComponent):
     def calc_horizontal_tail_Cd0(self,h_area,w_area,cd0):
         return h_area/w_area*cd0 
     
-    def calc_horizontal_tail_area_m2(self,f_l,w_mac,w_area,vol_c):
-         Lh=f_l*0.5
-         return vol_c*w_area*w_mac/Lh 
+    def calc_horizontal_tail_area_m2(self,fuselage_l_m,wing_MAC,wing_ref_area_m2,vol_c):
+         Lh=fuselage_l_m*0.5
+         return vol_c*wing_ref_area_m2*wing_MAC/Lh 
     
     def calc_dive_speed_m_p_s(self,v_c):
         return v_c*1.4
@@ -215,12 +207,12 @@ class HorizontalTail(AircraftComponent):
         w = a_ft2 * term * 0.4536 * 0.9
         return w
 
-# --- vertical tail class
+# vertical tail class
 class VerticalTail(AircraftComponent):
     def __init__(self, path_to_json: str):
         super().__init__(path_to_json)
-        self.vertical_tail_area_m2: float = 0.0
-        self.vertical_tail_Cd0: float = 0.0
+        self.vertical_tail_area_m2 = 0.0
+        self.vertical_tail_Cd0 = 0.0
 
     def UpdateComponent(self, aircraft_state: dict):
         self.load_variables_from_json()
@@ -231,13 +223,17 @@ class VerticalTail(AircraftComponent):
         vert_tail_vol_coeff=self._varlist["vert_tail_vol_coeff"]
         empennage_airfoil_cd0=self._varlist["empennage_airfoil_cd0"]
         cruise_speed_m_p_s=self._varlist["cruise_speed_m_p_s"]
-        dive_speed_m_p_s = cruise_speed_m_p_s * 1.4
+        dive_speed_m_p_s = self.calc_dive_speed_m_p_s(cruise_speed_m_p_s)
         self.vertical_tail_area_m2 = self.calc_vertical_tail_area_m2(fuselage_l_m, wing_ref_area_m2, vert_tail_vol_coeff, wingspan_m)
         self.weight = self.calc_vertical_wing_weight_kg(self.vertical_tail_area_m2, dive_speed_m_p_s)
         self.vertical_tail_Cd0 = self.calc_vertical_tail_Cd0(self.vertical_tail_area_m2, wing_ref_area_m2, empennage_airfoil_cd0)
 
-    def calc_vertical_tail_area_m2(self,f_l,w_area,vol_c,w_span):
-         Lv=f_l*0.5
+
+    def calc_dive_speed_m_p_s(self,v_c):
+        return v_c*1.4
+
+    def calc_vertical_tail_area_m2(self,fuselage_l_m,w_area,vol_c,w_span):
+         Lv=fuselage_l_m*0.5
          return vol_c*w_span*w_area/Lv
     
     def calc_vertical_wing_weight_kg(self,v_area,v_d):
@@ -251,11 +247,11 @@ class VerticalTail(AircraftComponent):
     def calc_vertical_tail_Cd0(self,v_area,w_area,cd0):
         return v_area/w_area*cd0 
 
-# --- Landing gear class ---
+# Landing gear class
 class LandingGear(AircraftComponent):
     def __init__(self, path_to_json: str):
         super().__init__(path_to_json)
-        self.landing_gear_Cd0: float = 0.0
+        self.landing_gear_Cd0 = 0.0
 
     def UpdateComponent(self, aircraft_state: dict):
         self.load_variables_from_json()
@@ -272,13 +268,13 @@ class LandingGear(AircraftComponent):
     def calc_landing_gear_weight_kg(self,mtow):
         return 0.0325*mtow*1.14*1.08
 
-# --- Boom class ---
+# Boom class
 class Boom(AircraftComponent):
     def __init__(self, path_to_json: str):
         super().__init__(path_to_json)
-        self.boom_disk_area_m2: float = 0.0
-        self.booms_Cd0: float = 0.0
-        self.booms_CdA_m2: float = 0.0
+        self.boom_disk_area_m2 = 0.0
+        self.booms_Cd0 = 0.0
+        self.booms_CdA_m2 = 0.0
 
     def UpdateComponent(self, aircraft_state: dict):
         self.load_variables_from_json()
@@ -289,7 +285,7 @@ class Boom(AircraftComponent):
         boom_drag_area=self._varlist["boom_drag_area"]
         rotor_count=self._varlist["rotor_count"]
         rotor_diameter_m=self._varlist["rotor_diameter_m"]
-        self.boom_disk_area_m2 = self.calc_disk_area_m2(rotor_diameter_m, rotor_count)
+        self.boom_disk_area_m2 = self.calc_disk_area_m2(rotor_diameter_m)
         self.booms_Cd0 = self.calc_booms_Cd0(self.boom_disk_area_m2, boom_drag_area, wing_ref_area_m2)
         self.total_booms_Cd0 = self.booms_Cd0 * rotor_count
         self.booms_CdA_m2 = self.calc_booms_CdA_m2(self.booms_Cd0, battery_spec_energy)
@@ -307,18 +303,18 @@ class Boom(AircraftComponent):
           6 * 0.2315 * ((1.2 * r_d+ w_mac) * 1) ** 1.3476) * 2
         return w/2
 
-    def calc_disk_area_m2(self,r_d,r_count):
+    def calc_disk_area_m2(self,r_d):
         return math.pi*(r_d/2)**2
 
-# --- Lift Rotor class ---
+# Lift Rotor class
 class LiftRotor(AircraftComponent):
     def __init__(self, path_to_json: str):
         super().__init__(path_to_json)
-        self.disk_area_m2: float = 0.0
-        self.rotor_RPM_hover: float = 0.0
-        self.Ct_hover: float = 0.0
-        self.lift_rotor_plus_hub_weight_kg: float = 0.0
-        self.disk_loading_kg_p_m2: float = 0.0
+        self.disk_area_m2 = 0.0
+        self.rotor_RPM_hover = 0.0
+        self.Ct_hover = 0.0
+        self.lift_rotor_plus_hub_weight_kg = 0.0
+        self.disk_loading_kg_p_m2 = 0.0
 
     def UpdateComponent(self, aircraft_state: dict):
         self.load_variables_from_json()
@@ -334,7 +330,7 @@ class LiftRotor(AircraftComponent):
         rotor_avg_cl=self._varlist["rotor_avg_cl"]
         g_m_p_s2=self._varlist["g_m_p_s2"]
         total_rotor_count=self._varlist["rotor_count"]
-        self.disk_area_m2 = self.calc_disk_area_m2(rotor_diameter_m, rotor_count)
+        self.disk_area_m2 = self.calc_disk_area_m2(rotor_diameter_m)
         self.rotor_RPM_hover = self.calc_rotor_RPM_hover(sound_speed_m_p_s, rotor_diameter_m, tip_mach)
         self.Ct_hover = self.calc_Ct_hover(mtow_kg, g_m_p_s2, total_rotor_count, air_density_sea_level_kg_p_m3, rotor_diameter_m, self.rotor_RPM_hover)
         rotor_solidity = self.calc_rotor_solidity(self.Ct_hover, rotor_avg_cl)
@@ -362,7 +358,7 @@ class LiftRotor(AircraftComponent):
          denom = rho*math.pi*(r_d/2)**4*(rpm*math.pi/30)**2
          return (mtow*g/r_c)/denom 
     
-    def calc_disk_area_m2(self,r_d,r_c):
+    def calc_disk_area_m2(self,r_d):
         return math.pi*(r_d/2)**2
     
     def calc_disk_loading_kg_p_m2(self,mtow,d_area):
@@ -374,15 +370,15 @@ class LiftRotor(AircraftComponent):
     def calc_rotor_solidity(self,ct,cl):
         return ct*6/cl
 
-# --- Tilt rotor class
+# Tilt rotor class
 class TiltRotor(AircraftComponent):
     def __init__(self, path_to_json: str):
         super().__init__(path_to_json)
-        self.disk_area_m2: float = 0.0
-        self.rotor_RPM_hover: float = 0.0
-        self.Ct_hover: float = 0.0
-        self.tilt_rotor_weight_kg: float = 0.0
-        self.disk_loading_kg_p_m2: float = 0.0
+        self.disk_area_m2 = 0.0
+        self.rotor_RPM_hover = 0.0
+        self.Ct_hover = 0.0
+        self.tilt_rotor_weight_kg = 0.0
+        self.disk_loading_kg_p_m2 = 0.0
 
     def UpdateComponent(self, aircraft_state: dict):
         self.load_variables_from_json()
@@ -398,7 +394,7 @@ class TiltRotor(AircraftComponent):
         rotor_avg_cl=self._varlist["rotor_avg_cl"]
         g_m_p_s2=self._varlist["g_m_p_s2"]
         total_rotor_count=self._varlist["rotor_count"]
-        self.disk_area_m2 = self.calc_disk_area_m2(rotor_diameter_m, rotor_count)
+        self.disk_area_m2 = self.calc_disk_area_m2(rotor_diameter_m)
         self.rotor_RPM_hover = self.calc_rotor_RPM_hover(sound_speed_m_p_s, rotor_diameter_m, tip_mach)
         self.Ct_hover = self.calc_Ct_hover(mtow_kg, g_m_p_s2, total_rotor_count, air_density_sea_level_kg_p_m3, rotor_diameter_m, self.rotor_RPM_hover)
         rotor_solidity = self.calc_rotor_solidity(self.Ct_hover, rotor_avg_cl)
@@ -425,7 +421,7 @@ class TiltRotor(AircraftComponent):
          denom = rho*math.pi*(r_d/2)**4*(rpm*math.pi/30)**2
          return (mtow*g/r_c)/denom 
     
-    def calc_disk_area_m2(self,r_d,r_c):
+    def calc_disk_area_m2(self,r_d):
         return math.pi*(r_d/2)**2 
 
     def calc_disk_loading_kg_p_m2(self,mtow,d_area):
@@ -439,31 +435,25 @@ class TiltRotor(AircraftComponent):
 
 class Aircraft:
     def __init__(self, components: list, path_to_json: str):
-        # Keep track of the manager if it's attached later
-        self.lifting_abu_manager: Optional['LiftingABUManager'] = None # Forward declaration if manager uses Aircraft
-
         for component in components:
             if isinstance(component, Battery):
                 self.battery = component
                 break
-        else:
-            raise ValueError("Aircraft must be initialized with a Battery component.") # Ensure battery exists
-        
+
         self.components = components
         self.path_to_json = path_to_json
         self._varlist: Dict[str, Any] = {}
         self.load_aircraft_variables_from_json()
-        self.mtow_kg: float = 0.0
-        self.Cd0_parasite_sum: float = 0.0
-        self.base_cd0: float = 0.0 # Store base Cd0 before factors
-        self.Cd0_total_parasite: float = 0.0 # Store Cd0 after factors
-        self.Cd_cruise: float = 0.0
-        self.CL_cruise: float = 0.0
-        self.Cdi_cruise: float = 0.0
-        self.cruise_L_p_D: float = 0.0
-        self.rotor_disk_area_total_m2: float = 0.0
-        self.rotor_RPM_hover: float = 0.0
-        self._varlist['single_epu_weight_kg_sized'] = 0.0 # Store the calculated EPU weight
+        self.mtow_kg = 0.0
+        self.base_cd0 = 0.0 
+        self.Cd0_total_parasite = 0.0 
+        self.Cd_cruise = 0.0
+        self.CL_cruise = 0.0
+        self.Cdi_cruise = 0.0
+        self.cruise_L_p_D = 0.0
+        self.rotor_disk_area_total_m2 = 0.0
+        self.rotor_RPM_hover = 0.0
+        self._varlist['single_epu_weight_kg_sized'] = 0.0
 
 
     def load_aircraft_variables_from_json(self):
@@ -477,34 +467,28 @@ class Aircraft:
         self.max_dod = self._varlist["max_dod"]
 
 
-    def update_state_for_iteration(self, current_mtow_estimate: float):
+    def update_state_for_iteration(self, current_mtow_estimate):
         self.mtow_kg = current_mtow_estimate
         aircraft_state: Dict[str, Any] = {'mtow_kg': current_mtow_estimate}
         component_Cd0_sum = 0.0
         wing_props = {}
         single_epu_weight_kg = 0.0
-        rotor_disk_area_total_m2 = 0.0 # Reset for recalculation
 
-        # --- EPU Sizing (Only during initial sizing, not needed for Lifting ABU updates) ---
-        # Check if this is likely an initial sizing call (manager not attached or EPU not stored)
-        is_initial_sizing = self.lifting_abu_manager is None or self._varlist['single_epu_weight_kg_sized'] == 0.0
+        is_initial_sizing = self._varlist['single_epu_weight_kg_sized'] == 0.0
 
         if is_initial_sizing:
             rotor_diameter_m = self._varlist["rotor_diameter_m"]
             sound_speed_m_p_s = self._varlist["sound_speed_m_p_s"]
             tip_mach = self._varlist["tip_mach"]
-            total_rotor_count = self._varlist["rotor_count"] # Use total from config for initial sizing
+            total_rotor_count = self._varlist["rotor_count"] # Uses the total for intial sizing
             rho_sl = self._varlist["rho_sl"]
             rho_min = self._varlist["air_density_min_kg_p_m3"]
             fom = self._varlist["fom"]
 
             self.rotor_RPM_hover = self.calc_rotor_RPM_hover(sound_speed_m_p_s, rotor_diameter_m, tip_mach)
             hover_omega_rad_s = self.rotor_RPM_hover * math.pi / 30.0
-            # Use the *initial* total rotor count for sizing EPUs
             initial_rotor_disk_area = total_rotor_count * math.pi * (rotor_diameter_m / 2)**2
-            total_hover_shaft_power_kw = calc_hover_shaft_power_k_W(
-                self.mtow_kg, self.g_m_p_s2, rho_sl, fom, initial_rotor_disk_area
-            )
+            total_hover_shaft_power_kw = calc_hover_shaft_power_k_W(self.mtow_kg, self.g_m_p_s2, rho_sl, fom, initial_rotor_disk_area)
             hover_power_per_rotor_kw = total_hover_shaft_power_kw / total_rotor_count
             hover_torque_per_rotor_nm = (hover_power_per_rotor_kw * W_PER_KW) / hover_omega_rad_s
 
@@ -515,17 +499,16 @@ class Aircraft:
             max_power_per_rotor_kw = (max_torque_per_rotor_nm * max_rpm * math.pi / 30.0 / W_PER_KW)
 
             single_epu_weight_kg = calc_single_EPU_weight_kg(max_torque_per_rotor_nm, max_power_per_rotor_kw)
-            self._varlist['single_epu_weight_kg_sized'] = single_epu_weight_kg # Store it
+            self._varlist['single_epu_weight_kg_sized'] = single_epu_weight_kg 
             print(f"  Calculated EPU Weight (Sizing): {single_epu_weight_kg:.2f} kg (P={max_power_per_rotor_kw:.2f} kW, T={max_torque_per_rotor_nm:.1f} Nm)")
         else:
-             # Use the stored EPU weight for subsequent updates (e.g., post-jettison)
              single_epu_weight_kg = self._varlist['single_epu_weight_kg_sized']
              print(f"  Using Stored EPU Weight: {single_epu_weight_kg:.2f} kg")
 
 
         aircraft_state['single_epu_weight_kg'] = single_epu_weight_kg
 
-        # --- Update Wing First ---
+        # Updates wing first
         wing_component = next((c for c in self.components if isinstance(c, Wing)), None)
         if wing_component:
             wing_component.UpdateComponent(aircraft_state)
@@ -535,36 +518,33 @@ class Aircraft:
                           'wingspan_m': wing_component.wingspan_m}
             aircraft_state.update(wing_props)
             cd0_val = getattr(wing_component, 'wing_Cd0', 0.0)
-            # Include only if weight > 0 (handles jettisoned components conceptually if Cd0 calc depends on weight)
-            if wing_component.get_weight_kg() > 1e-6:
+            # Includes only if weight > 0, implicitly handles the jettisoned rotors and booms cd0
+            if wing_component.get_weight_kg() > 0:
                  component_Cd0_sum += cd0_val
-        else:
-             print("Warning: Wing component not found during update.")
 
 
-        # --- Update Other Components & Sum Drag ---
+        # Update components and sum drag
         spec_e = self.battery.get_gross_BOL_spec_energy()
-        aircraft_state['battery_spec_energy'] = spec_e # Needed for Boom weight calc
+        aircraft_state['battery_spec_energy'] = spec_e # Needed for boom weight calc
 
-        # Calculate current total disk area from non-jettisoned rotors
+        # Calculate current total disk area from non jettisoned rotors
         current_total_disk_area = 0.0
         for component in self.components:
              if isinstance(component, (LiftRotor, TiltRotor)):
-                 # Only count if not jettisoned (implicitly handled if component is LiftABU)
-                 if getattr(component, 'is_jettisoned', False) is False:
-                     # Update the component first before getting its area
-                     if not isinstance(component, (Battery, Wing)): # Avoid re-updating wing/battery
-                         component.UpdateComponent(aircraft_state)
-                     # Add its disk area
-                     current_total_disk_area += getattr(component, 'disk_area_m2', 0.0)
+                # Update the component first before getting its area
+                if not isinstance(component, (Battery, Wing)):
+                    component.UpdateComponent(aircraft_state)
+                # Add its disk area
+                current_total_disk_area += getattr(component, 'disk_area_m2')
              elif not isinstance(component, (Battery, Wing)):
-                 # Update other non-rotor/wing/battery components
+                 # Update other non rotor/wing/battery components
                  component.UpdateComponent(aircraft_state)
 
 
         for component in self.components:
-            if component.get_weight_kg() > 1e-6 and not isinstance(component, (Battery, Wing)):
-                 # Find the Cd0 attribute for this component type
+            # Implicityly handles the jettisoned rotors and booms cd0 because weight has to be > 0
+            if component.get_weight_kg() > 0 and not isinstance(component, (Battery, Wing)):
+                 # Gets the Cd0 value for every component and adds them all together for the total cd0
                  cd0_attr = next((attr for attr in ['fuselage_Cd0', 'horizontal_tail_Cd0', 'vertical_tail_Cd0', 'landing_gear_Cd0', 'booms_Cd0'] if hasattr(component, attr)), None)
                  if cd0_attr:
                     cd0_val = getattr(component, cd0_attr, 0.0)
@@ -572,35 +552,34 @@ class Aircraft:
 
 
         # After updating all components, print each component's contribution to Cd0
+        # Used for debugging 
         print("\n=== Component Drag Coefficient Breakdown ===")
         wing_component = next((c for c in self.components if isinstance(c, Wing)), None)
-        if wing_component and wing_component.get_weight_kg() > 1e-6:
+        if wing_component and wing_component.get_weight_kg() > 0:
             print(f"Wing: wing_Cd0 = {wing_component.wing_Cd0:.6f}")
-
-        # Print all other components
         for component in self.components:
-            if component.get_weight_kg() > 1e-6 and not isinstance(component, (Battery, Wing)):
-                # Check for each possible Cd0 attribute
-                for cd0_attr in ['fuselage_Cd0', 'horizontal_tail_Cd0', 'vertical_tail_Cd0', 'landing_gear_Cd0', 'booms_Cd0', 'total_booms_Cd0']:
+            if component.get_weight_kg() > 0 and not isinstance(component, (Battery, Wing)):
+                for cd0_attr in ['fuselage_Cd0', 'horizontal_tail_Cd0', 'vertical_tail_Cd0', 'landing_gear_Cd0', 'booms_Cd0']:
                     if hasattr(component, cd0_attr):
-                        print(f"{type(component).__name__}: {cd0_attr} = {getattr(component, cd0_attr, 0.0):.6f}")
+                        print(f"{type(component).__name__}: {cd0_attr} = {getattr(component, cd0_attr):.6f}")
 
-        # Print total before factors are applied
         print(f"Total component_Cd0_sum = {component_Cd0_sum:.6f}")
         print(f"After excres_protub_factor ({self.excres_protub_factor}): {component_Cd0_sum * self.excres_protub_factor:.6f}")
         print("============================================\n")
 
-        self.base_cd0 = component_Cd0_sum # Store sum before factors
-        self.Cd0_parasite_sum = component_Cd0_sum # Keep alias for compatibility
+        self.base_cd0 = component_Cd0_sum
         self.Cd0_total_parasite = self.base_cd0 * self.excres_protub_factor
 
-        # --- Calculate Cruise Performance ---
+        # Calculate cruise performance
         cruise_speed = self._varlist.get('cruise_speed_m_p_s')
-        rho_cruise = self._varlist.get('air_density_cruise_kg_p_m3', self._varlist.get('air_density_sea_level_kg_p_m3', 1.225))
+        rho_cruise = self._varlist.get('air_density_cruise_kg_p_m3')
+        rho_sl = self._varlist.get('air_density_sea_level_kg_p_m3')
         area = wing_props.get('wing_ref_area_m2')
         ar = wing_props.get('wing_AR')
 
         self.CL_cruise = self.calculate_cruise_CL(self.mtow_kg * self.g_m_p_s2, rho_cruise, cruise_speed, area)
+        print(f"Cruise Lift Coefficient (CL_cruise): {self.CL_cruise:.4f}")
+
         self.Cdi_cruise = self.calc_Cdi(self.spac_effic_factor, ar, self.CL_cruise)
         self.Cd_cruise = (self.Cd0_total_parasite + self.Cdi_cruise) * self.trim_drag_factor
         self.cruise_L_p_D = self.CL_cruise / self.Cd_cruise
@@ -616,30 +595,13 @@ class Aircraft:
         total_mass += self.fixed_systems_kg
         return total_mass
     
-    def get_current_usable_EOL_kwh(self) -> float:
-        """ Gets the total usable EOL capacity considering jettisoned units. """
-        if self.lifting_abu_manager and self.lifting_abu_manager.is_configured:
-            return self.lifting_abu_manager.get_current_total_usable_EOL_kwh()
-        else:
-            # Default: return main battery capacity if manager not active
-            return self.battery.get_usable_EOL_capacity_kwh()
+    # Gets the current usable EOL capacity
+    def get_current_usable_EOL_kwh(self):
+        return self.battery.get_usable_EOL_capacity_kwh()
 
-    def get_current_gross_BOL_kwh(self) -> float:
-        """ Gets the total gross BOL capacity (for C-rate) considering jettisoned units. """
-        if self.lifting_abu_manager and self.lifting_abu_manager.is_configured:
-            return self.lifting_abu_manager.get_current_total_gross_BOL_kwh()
-        else:
-            # Default: return main battery capacity if manager not active
-            return self.battery.get_gross_BOL_capacity_kwh()
-        
-    def get_battery_capacity_kwh(self):
-        """ Returns the *current* total gross BOL capacity of the system. """
-        return self.get_current_gross_BOL_kwh() # Use the new method
-
-    def get_EOL_battery_capacity_kwh(self):
-        """ Returns the *current* total usable EOL capacity of the system. """
-        return self.get_current_usable_EOL_kwh() # Use the new method
-
+    # Gets the current gross BOL capacity
+    def get_current_gross_BOL_kwh(self):
+        return self.battery.get_gross_BOL_capacity_kwh()
 
     def calc_rotor_RPM_hover(self,sos,r_d,m_tip):
         return sos*m_tip/(r_d/2)*30/math.pi 
@@ -662,10 +624,16 @@ class Aircraft:
     
     def get_wing_ar(self):
          wing = next((c for c in self.components if isinstance(c, Wing)), None)
-         return wing.wing_AR if wing else 0.0
+         return wing.wing_AR 
 
-def calc_hover_shaft_power_k_W(mtow_kg: float, g: float, rho: float, fom: float, disk_area_m2: float) -> float:
+def calc_hover_shaft_power_k_W(mtow_kg, g, rho, fom, disk_area_m2):
     thrust_n = mtow_kg * g
     ideal_power_w = (thrust_n**1.5) / (math.sqrt(2.0 * rho * disk_area_m2))
     shaft_power_w = ideal_power_w / fom
     return shaft_power_w / W_PER_KW
+
+def calc_single_EPU_weight_kg(motor_torque_max_thrust_Nm, motor_mechanical_power_sizing_k_W):
+    power_term = motor_mechanical_power_sizing_k_W
+    torque_term = motor_torque_max_thrust_Nm
+    weight_kg = 1.15 * (power_term / 12.67 + torque_term / 52.2 + 2.55)
+    return weight_kg

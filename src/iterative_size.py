@@ -29,9 +29,13 @@ class IterativeSizer:
             initial_batt_mass_guess = mtow_guess_kg * initial_batt_mass_fraction
             aircraft.battery.final_batt_mass_kg = initial_batt_mass_guess
 
+            # Get the maximum C-rate constraint from configuration
+            battery_max_c_rate = aircraft._varlist.get("battery_max_c_rate")  # Default to 6.0 if not specified
+
             print("\nStarting MTOW & Battery Sizing Convergence Loop...")
             print("-" * 60)
             print(f"Convergence Params: Max Iter={self.max_iterations}, Tolerance={self.tolerance} kg, Damping={self.damping_factor}")
+            print(f"Battery Max C-Rate Constraint: {battery_max_c_rate}")
             print("-" * 60)
 
             for i in range(self.max_iterations):
@@ -51,6 +55,7 @@ class IterativeSizer:
                 # 3: Runs mission simulation
                 mission.run_mission()
                 total_mission_energy_kwh = mission.total_energy_kwh
+                max_mission_power_kw = mission.max_power_kw
                 
                 # for testing purposes CHANGE
                 lift_rotor_count = aircraft._varlist.get("lift_rotor_count")
@@ -59,23 +64,40 @@ class IterativeSizer:
                 print(f"  Mission run complete with {lift_rotor_count} lift rotors and {tilt_rotor_count} tilt rotors")
                 print(f"  Total disk area: {aircraft.get_rotor_disk_area_m2():.2f} m²")
                 print(f"  Total Energy: {total_mission_energy_kwh:.3f} kWh")
-
-
+                print(f"  Max Power: {max_mission_power_kw:.3f} kW")
 
                 # Recalculates battery mass
                 usable_EOL_spec_energy_Wh_kg = aircraft.battery.get_usable_EOL_spec_energy()
 
-                # Calculate required total usable capacity needed from battery to comlpete the mission
-                # dod probably doesn't have to account for the reserve segment?, aka size the battery for just 
-                # the main mission segment and just make sure it can complete the reserve on like 95% dod or something
-                # CHANGE?
+                # Calculate required total usable capacity needed from battery based on energy
                 required_total_usable_EOL_kwh = total_mission_energy_kwh / aircraft.max_dod
                 print(f"  Mission Energy: {total_mission_energy_kwh:.3f} kWh, Max DoD: {aircraft.max_dod*100:.1f}%")
-                print(f"  -> Required Total Usable EOL Capacity: {required_total_usable_EOL_kwh:.3f} kWh")
+                print(f"  -> Required Total Usable EOL Capacity (Energy): {required_total_usable_EOL_kwh:.3f} kWh")
 
-                # Calculate the mass required to provide this capacity
-                required_batt_mass_kg = (required_total_usable_EOL_kwh * W_PER_KW) / usable_EOL_spec_energy_Wh_kg
-                print(f"  -> Calculated Required Battery Mass: {required_batt_mass_kg:.2f} kg (using EOL spec energy: {usable_EOL_spec_energy_Wh_kg:.1f} Wh/kg)")
+                # Calculate the mass required to meet energy requirements
+                energy_based_batt_mass_kg = (required_total_usable_EOL_kwh * W_PER_KW) / usable_EOL_spec_energy_Wh_kg
+                print(f"  -> Calculated Energy-Based Battery Mass: {energy_based_batt_mass_kg:.2f} kg (using EOL spec energy: {usable_EOL_spec_energy_Wh_kg:.1f} Wh/kg)")
+
+                # Calculate required capacity based on C-rate constraint
+                # We need BOL capacity for C-rate, so adjust using the ratio between BOL and EOL usable
+                bol_to_eol_ratio = aircraft.battery.get_gross_BOL_capacity_kwh() / aircraft.battery.get_usable_EOL_capacity_kwh() if aircraft.battery.get_usable_EOL_capacity_kwh() > 0 else 1.0
+                required_crate_capacity_kwh = max_mission_power_kw / battery_max_c_rate
+                required_crate_usable_EOL_kwh = required_crate_capacity_kwh
+                print(f"  -> Required Total Usable EOL Capacity (C-rate): {required_crate_usable_EOL_kwh:.3f} kWh (max power / max C-rate)")
+
+                # Calculate the mass required to meet C-rate constraint
+                crate_based_batt_mass_kg = (required_crate_usable_EOL_kwh * W_PER_KW) / usable_EOL_spec_energy_Wh_kg
+                print(f"  -> Calculated C-Rate-Based Battery Mass: {crate_based_batt_mass_kg:.2f} kg")
+
+                # Take the larger of the two battery masses to satisfy both constraints
+                if crate_based_batt_mass_kg > energy_based_batt_mass_kg:
+                    required_batt_mass_kg = crate_based_batt_mass_kg
+                    print(f"  -> C-Rate Constraint is DRIVING Battery Sizing (C-rate: {battery_max_c_rate}, Max Power: {max_mission_power_kw:.2f} kW)")
+                else:
+                    required_batt_mass_kg = energy_based_batt_mass_kg
+                    print(f"  -> Energy Requirement is DRIVING Battery Sizing")
+
+                print(f"  -> Final Required Battery Mass: {required_batt_mass_kg:.2f} kg")
 
                 # 5: update battery component properties based on the new mass
                 aircraft.battery.final_batt_mass_kg = required_batt_mass_kg

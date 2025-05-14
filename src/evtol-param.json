@@ -82,12 +82,5 @@
   "jettison_opt_batt_mass_step_kg": 10.0 ,
   "jettison_opt_time_start_s": 0.0 ,
   "jettison_opt_time_end_s": 3600.0,
-  "jettison_opt_time_step_s": 1.0,
-
-  "enable_lifting_abu_scenario": true,     
-  "num_lift_systems_to_replace": 4,        
-  "total_abu_mass_kg": 200.0,              
-  "lifting_abu_jettison_time_s": 45.0
-
-
+  "jettison_opt_time_step_s": 1.0
 }

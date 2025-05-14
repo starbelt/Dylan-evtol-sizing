@@ -10,6 +10,63 @@ from missionsegment import (
 )
 from sized_aircraft import size_aircraft, DEFAULT_JSON_PATH, W_PER_KW
 
+# Add function to calculate extra cruise range based on energy savings
+def calculate_extra_cruise_range(baseline_mission, jettison_mission, json_path):
+    """
+    Calculate the extra cruise range that could be achieved with energy saved.
+    
+    Args:
+        baseline_mission: The baseline mission without jettison
+        jettison_mission: The mission with jettison
+        json_path: Path to the JSON config file to get cruise speed
+    
+    Returns:
+        float: Extra cruise range in kilometers
+    """
+    # Find energy savings
+    energy_saved_kwh = baseline_mission.total_energy_kwh - jettison_mission.total_energy_kwh
+    if energy_saved_kwh <= 0:
+        return 0.0
+    
+    # Find the cruise segment in the baseline mission (typically index 2)
+    cruise_segment = None
+    from missionsegment import CruiseSegment
+    for segment in baseline_mission.mission_segments:
+        if isinstance(segment, CruiseSegment):
+            cruise_segment = segment
+            break
+    
+    if not cruise_segment:
+        print("Warning: Could not find cruise segment for extra range calculation!")
+        return 0.0
+    
+    # Get cruise power consumption and speed
+    cruise_power_kw = cruise_segment.power_draw_kw
+    
+    # If power is zero or not available, try to get from JSON
+    if cruise_power_kw <= 0:
+        # Fallback to segment results
+        for idx, segment_result in enumerate(baseline_mission.segment_results):
+            if segment_result.get("Segment Type") == "Cruise":
+                cruise_power_kw = segment_result.get("Power (kW)", 0)
+                break
+    
+    # If still zero, we can't calculate
+    if cruise_power_kw <= 0:
+        print("Warning: Invalid cruise power for extra range calculation!")
+        return 0.0
+    
+    # Get cruise speed from the cruise segment
+    cruise_speed_m_p_s = cruise_segment.cruise_speed_m_p_s
+    
+    # Calculate extra cruise time in seconds
+    extra_cruise_time_s = (energy_saved_kwh / cruise_power_kw) * 3600  # Convert kWh/kW to seconds
+    
+    # Calculate extra cruise range in km
+    extra_cruise_range_km = (extra_cruise_time_s * cruise_speed_m_p_s) / 1000  # Convert m to km
+    
+    return extra_cruise_range_km
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="eVTOL Aircraft Baseline Mission Simulation (via lift_abu.py)")
     parser.add_argument(
@@ -76,8 +133,8 @@ if __name__ == '__main__':
             
             # Configuration for jettisoning components
             jettison_rotor_type_to_drop = "lift"  # Options: "lift" or "tilt"
-            jettison_rotor_number_to_drop = 2     # Number of selected rotors to jettison
-            battery_mass_to_jettison_kg = 500.0   # Mass of battery to jettison
+            jettison_rotor_number_to_drop = 4     # Number of selected rotors to jettison
+            battery_mass_to_jettison_kg = 800.0   # Mass of battery to jettison
 
             jettison_config = {
                 "boom_count": jettison_rotor_number_to_drop,  # Assuming one boom per jettisoned rotor
@@ -148,6 +205,16 @@ if __name__ == '__main__':
                      "0.00%",
                      f"{(mission.total_energy_kwh - jettison_cruise_mission.total_energy_kwh) / mission.total_energy_kwh * 100:.2f}%",
                      f"{(mission.total_energy_kwh - jettison_climb_mission.total_energy_kwh) / mission.total_energy_kwh * 100:.2f}%"],
+                    
+                    # Find cruise segment power and speed from baseline mission
+                    # The cruise segment is typically index 2 in the segments list
+                    ["Extra Cruise Range (km)", 
+                     "0.00",
+                     # Calculate extra range for jettison at cruise
+                     f"{calculate_extra_cruise_range(mission, jettison_cruise_mission, path_to_json):.2f}",
+                     # Calculate extra range for jettison at climb
+                     f"{calculate_extra_cruise_range(mission, jettison_climb_mission, path_to_json):.2f}"],
+                    
                     ["Max Power (kW)", 
                      f"{mission.max_power_kw:.2f}",
                      f"{jettison_cruise_mission.max_power_kw:.2f}",

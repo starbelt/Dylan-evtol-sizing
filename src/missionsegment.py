@@ -3,12 +3,28 @@ import math
 from tabulate import tabulate
 import abc
 import copy
-from aircraft import Aircraft, Wing, Fuselage, HorizontalTail, VerticalTail, LandingGear, Boom, LiftRotor, TiltRotor # Import classes
-from battery import Battery 
+from aircraft import Aircraft, Wing, Fuselage, HorizontalTail, VerticalTail, LandingGear, Boom, LiftRotor, TiltRotor
+from battery import Battery
+from utils import (
+    calc_hover_shaft_power_k_W,
+    calc_batt_C_rate,
+    G as g,
+    H_PER_S
+)
 
-g = 9.81
-H_PER_S = 1.0/3600.0 
+# Calculates the shaft power required for cruise
+def calc_cruise_shaft_power_k_W(mtow_kg, g, prop_effic, cruise_speed_m_p_s, cruise_L_p_D):
+    thrust_req_n = (mtow_kg * g) / cruise_L_p_D
+    shaft_power_w = (thrust_req_n * cruise_speed_m_p_s) / prop_effic
+    return shaft_power_w / 1000.0  # convert W to kW
 
+# Calculates the electric power required for cruise
+def calc_cruise_electric_power_k_W(cruise_shaft_power_k_w, epu_effic):
+    return cruise_shaft_power_k_w / epu_effic
+
+# Calculates the electric power required to hover
+def calc_hover_electric_power_k_W(epu_effic, hover_shaft_power_k_W):
+    return hover_shaft_power_k_W / epu_effic
 
 class MissionSegment:
     def __init__(self, path_to_json: str, segment_type: str):
@@ -62,7 +78,7 @@ class HoverSegment(MissionSegment):
 
         # Use aircraft's current MTOW
         current_mtow_kg = aircraft.mtow_kg
-        batt_capacity_kwh = aircraft.get_EOL_battery_capacity_kwh()
+        batt_capacity_kwh = aircraft.get_current_usable_EOL_kwh()
         disk_area = aircraft.get_rotor_disk_area_m2() # Get from aircraft
         print(f"  Rotor disk area: {disk_area:.2f} m²")
 
@@ -84,6 +100,7 @@ class ClimbSegment(MissionSegment):
     """Represents a climb segment."""
     def __init__(self, path_to_json: str):
         super().__init__(path_to_json, "Climb")
+        self.horizontal_distance_km = 0.0  # Track horizontal distance covered during climb
 
     def _load_static_params_from_json(self, path_to_json):
         with open(path_to_json, 'r') as f:
@@ -110,7 +127,7 @@ class ClimbSegment(MissionSegment):
 
         #  Get Aircraft State 
         current_mtow_kg = aircraft.mtow_kg
-        batt_capacity_kwh = aircraft.get_EOL_battery_capacity_kwh()
+        batt_capacity_kwh = aircraft.get_current_usable_EOL_kwh()
         wing_area = aircraft.get_wing_area_m2()
         wing_ar = aircraft.get_wing_ar()
         base_cd0 = aircraft.base_cd0
@@ -125,11 +142,12 @@ class ClimbSegment(MissionSegment):
         v_start_mps = 20 # arbitrary number because im lost
 
         # End speed is the cruise speed
-        v_end_mps = self.cruise_speed_m_p_s 
+        v_end_mps = 40 # MIN POWER AIRSPEED CHANGE
         
 
         dt = self.duration_s / self.num_steps
         total_energy_kj = 0.0
+        total_horizontal_distance_m = 0.0  # Track horizontal distance
 
         # Calculate Initial Point (t=0)
         # Determine speed at t=0
@@ -161,6 +179,14 @@ class ClimbSegment(MissionSegment):
 
             current_speed_mps = current_speed_mps
 
+            # Calculate horizontal component of velocity (considering climb angle)
+            climb_angle_rad = math.atan2(self.roc_mps, current_speed_mps)
+            horizontal_speed_mps = current_speed_mps * math.cos(climb_angle_rad)
+            
+            # Accumulate horizontal distance for this time step
+            horizontal_distance_step = horizontal_speed_mps * dt
+            total_horizontal_distance_m += horizontal_distance_step
+
             # Calculate instantaneous power required
             instant_power_kw = calc_power_at_speed_climbing_k_W(
                 mtow_kg=current_mtow_kg, target_speed_mps=current_speed_mps, base_cd0=base_cd0,
@@ -185,7 +211,10 @@ class ClimbSegment(MissionSegment):
 
          # Final Calculations
         self.energy_kwh = total_energy_kj / 3600.0
+        self.horizontal_distance_km = total_horizontal_distance_m / 1000.0  # Convert m to km
 
+        print(f"  Horizontal distance covered during climb: {self.horizontal_distance_km:.2f} km")
+        
         # Calculate average power
         self.power_draw_kw = total_energy_kj / self.duration_s
 
@@ -199,6 +228,7 @@ class CruiseSegment(MissionSegment):
     """Represents a cruise segment."""
     def __init__(self, path_to_json: str):
         super().__init__(path_to_json, "Cruise")
+        self.actual_cruise_distance_km = 0.0  # Store the actual cruise distance after adjustment
 
     def _load_static_params_from_json(self, path_to_json):
         with open(path_to_json, 'r') as f:
@@ -208,14 +238,23 @@ class CruiseSegment(MissionSegment):
         self.cruise_speed_m_p_s = data["cruise_speed_m_p_s"]
         self.target_range_km = data["target_range_km"]
 
-    def calculate_performance(self, aircraft: Aircraft):
+    def calculate_performance(self, aircraft: Aircraft, previous_horizontal_distance_km=0.0):
         """Calculates cruise performance."""
 
+        # Adjust cruise distance by subtracting the horizontal distance already traveled
+        self.actual_cruise_distance_km = self.target_range_km - previous_horizontal_distance_km
+        if self.actual_cruise_distance_km < 0:
+            print(f"  Warning: Target range {self.target_range_km} km is less than horizontal distance already covered {previous_horizontal_distance_km:.2f} km")
+            self.actual_cruise_distance_km = 0.1  # Minimum cruise distance to avoid errors
+
+        print(f"  Adjusting cruise distance: Target={self.target_range_km} km, Previous horizontal={previous_horizontal_distance_km:.2f} km, Actual cruise={self.actual_cruise_distance_km:.2f} km")
+
         current_mtow_kg = aircraft.mtow_kg
-        batt_capacity_kwh = aircraft.get_EOL_battery_capacity_kwh()
+        batt_capacity_kwh = aircraft.get_current_usable_EOL_kwh()
         cruise_L_p_D = aircraft.cruise_L_p_D
 
-        self.duration_s = self.target_range_km * 1000.0 / self.cruise_speed_m_p_s
+        # Use adjusted cruise distance for duration calculation
+        self.duration_s = self.actual_cruise_distance_km * 1000.0 / self.cruise_speed_m_p_s
 
         # Power calc
         cruise_shaft_power_k_w = calc_cruise_shaft_power_k_W(current_mtow_kg, g, self.prop_effic, self.cruise_speed_m_p_s, cruise_L_p_D)
@@ -234,13 +273,22 @@ class JettisonCruiseSegment(CruiseSegment):
         super().__init__(path_to_json)
         self.segment_type = "Jettison Cruise"
         self.jettison_config = jettison_config
+        self.actual_cruise_distance_km = 0.0  # Store the actual cruise distance after adjustment
         
-    def calculate_performance(self, aircraft: Aircraft):
+    def calculate_performance(self, aircraft: Aircraft, previous_horizontal_distance_km=0.0):
         """Calculates cruise performance with jettisoned components."""
         # Store original values
         original_mtow = aircraft.mtow_kg
         original_cd0 = aircraft.base_cd0
-        original_batt_capacity = aircraft.get_EOL_battery_capacity_kwh()
+        original_batt_capacity = aircraft.get_current_usable_EOL_kwh()
+        
+        # Adjust cruise distance by subtracting the horizontal distance already traveled
+        self.actual_cruise_distance_km = self.target_range_km - previous_horizontal_distance_km
+        if self.actual_cruise_distance_km < 0:
+            print(f"  Warning: Target range {self.target_range_km} km is less than horizontal distance already covered {previous_horizontal_distance_km:.2f} km")
+            self.actual_cruise_distance_km = 0.1  # Minimum cruise distance to avoid errors
+
+        print(f"  Adjusting cruise distance: Target={self.target_range_km} km, Previous horizontal={previous_horizontal_distance_km:.2f} km, Actual cruise={self.actual_cruise_distance_km:.2f} km")
         
         try:
             # Find boom components to calculate their mass and drag
@@ -300,12 +348,13 @@ class JettisonCruiseSegment(CruiseSegment):
             current_mtow_kg = aircraft.mtow_kg
             cruise_L_p_D = aircraft.cruise_L_p_D
             
-            self.duration_s = self.target_range_km * 1000.0 / self.cruise_speed_m_p_s
+            # Use adjusted cruise distance for duration calculation
+            self.duration_s = self.actual_cruise_distance_km * 1000.0 / self.cruise_speed_m_p_s
             
             # Power calc
             cruise_shaft_power_k_w = calc_cruise_shaft_power_k_W(current_mtow_kg, g, self.prop_effic, self.cruise_speed_m_p_s, cruise_L_p_D)
             self.power_draw_kw = calc_cruise_electric_power_k_W(cruise_shaft_power_k_w, self.epu_effic)
-            
+
             # Energy
             self.energy_kwh = self.power_draw_kw * self.duration_s * H_PER_S
             
@@ -344,12 +393,12 @@ class JettisonCruiseSegment(CruiseSegment):
             aircraft.base_cd0 -= boom_cd0
             
             try:
-                # Calculate performance with modified aircraft (but skip the super().calculate_performance)
-                # since we need to use adjusted battery capacity
+                # Calculate performance with modified aircraft but use adjusted cruise distance
                 current_mtow_kg = aircraft.mtow_kg
                 cruise_L_p_D = aircraft.cruise_L_p_D
                 
-                self.duration_s = self.target_range_km * 1000.0 / self.cruise_speed_m_p_s
+                # Use adjusted cruise distance for duration calculation in fallback method
+                self.duration_s = self.actual_cruise_distance_km * 1000.0 / self.cruise_speed_m_p_s
                 
                 # Power calc
                 cruise_shaft_power_k_w = calc_cruise_shaft_power_k_W(current_mtow_kg, g, self.prop_effic, self.cruise_speed_m_p_s, cruise_L_p_D)
@@ -378,7 +427,7 @@ class JettisonClimbSegment(ClimbSegment):
         # Store original values
         original_mtow = aircraft.mtow_kg
         original_cd0 = aircraft.base_cd0
-        original_batt_capacity = aircraft.get_EOL_battery_capacity_kwh()
+        original_batt_capacity = aircraft.get_current_usable_EOL_kwh()
         
         try:
             # Find boom components to calculate their mass and drag
@@ -439,6 +488,9 @@ class JettisonClimbSegment(ClimbSegment):
             self.detailed_time_points_relative = []
             self.detailed_power_profile_kw = []
             self.peak_power_kw = 0 
+            
+            # Initialize horizontal distance tracking
+            total_horizontal_distance_m = 0.0  # Track horizontal distance
 
             # Get aircraft state with reduced mass
             current_mtow_kg = aircraft.mtow_kg
@@ -451,7 +503,7 @@ class JettisonClimbSegment(ClimbSegment):
             alt_diff_m = self.cruise_alt_m - self.hover_alt_m
             self.duration_s = calc_climb_time_s(alt_diff_m, self.roc_mps)
 
-            v_start_mps = 20
+            v_start_mps = self.stall_speed_m_p_s  # Start speed is assumed to be the stall speed
             v_end_mps = self.cruise_speed_m_p_s
             
             dt = self.duration_s / self.num_steps
@@ -480,6 +532,14 @@ class JettisonClimbSegment(ClimbSegment):
                     current_speed_mps = v_start_mps + (v_end_mps - v_start_mps) * (current_time / self.duration_s)
                 else:
                     current_speed_mps = v_end_mps # Maintain target speed
+                
+                # Calculate horizontal component of velocity (considering climb angle)
+                climb_angle_rad = math.atan2(self.roc_mps, current_speed_mps)
+                horizontal_speed_mps = current_speed_mps * math.cos(climb_angle_rad)
+                
+                # Accumulate horizontal distance for this time step
+                horizontal_distance_step = horizontal_speed_mps * dt
+                total_horizontal_distance_m += horizontal_distance_step
 
                 # Calculate instantaneous power required
                 instant_power_kw = calc_power_at_speed_climbing_k_W(
@@ -502,9 +562,12 @@ class JettisonClimbSegment(ClimbSegment):
 
                 # Update last power for next step
                 last_power_kw = instant_power_kw
-
+            
             # Final Calculations
             self.energy_kwh = total_energy_kj / 3600.0
+            self.horizontal_distance_km = total_horizontal_distance_m / 1000.0  # Convert m to km
+            
+            print(f"  Horizontal distance covered during jettison climb: {self.horizontal_distance_km:.2f} km")
             
             # Calculate average power
             self.power_draw_kw = total_energy_kj / self.duration_s
@@ -570,13 +633,22 @@ class JettisonCruiseSegment(CruiseSegment):
         super().__init__(path_to_json)
         self.segment_type = "Jettison Cruise"
         self.jettison_config = jettison_config
+        self.actual_cruise_distance_km = 0.0  # Store the actual cruise distance after adjustment
         
-    def calculate_performance(self, aircraft: Aircraft):
+    def calculate_performance(self, aircraft: Aircraft, previous_horizontal_distance_km=0.0):
         """Calculates cruise performance with jettisoned components."""
         # Store original values
         original_mtow = aircraft.mtow_kg
         original_cd0 = aircraft.base_cd0
-        original_batt_capacity = aircraft.get_EOL_battery_capacity_kwh()
+        original_batt_capacity = aircraft.get_current_usable_EOL_kwh()
+        
+        # Adjust cruise distance by subtracting the horizontal distance already traveled
+        self.actual_cruise_distance_km = self.target_range_km - previous_horizontal_distance_km
+        if self.actual_cruise_distance_km < 0:
+            print(f"  Warning: Target range {self.target_range_km} km is less than horizontal distance already covered {previous_horizontal_distance_km:.2f} km")
+            self.actual_cruise_distance_km = 0.1  # Minimum cruise distance to avoid errors
+
+        print(f"  Adjusting cruise distance: Target={self.target_range_km} km, Previous horizontal={previous_horizontal_distance_km:.2f} km, Actual cruise={self.actual_cruise_distance_km:.2f} km")
         
         try:
             # Find boom components to calculate their mass and drag
@@ -636,12 +708,13 @@ class JettisonCruiseSegment(CruiseSegment):
             current_mtow_kg = aircraft.mtow_kg
             cruise_L_p_D = aircraft.cruise_L_p_D
             
-            self.duration_s = self.target_range_km * 1000.0 / self.cruise_speed_m_p_s
+            # Use adjusted cruise distance for duration calculation
+            self.duration_s = self.actual_cruise_distance_km * 1000.0 / self.cruise_speed_m_p_s
             
             # Power calc
             cruise_shaft_power_k_w = calc_cruise_shaft_power_k_W(current_mtow_kg, g, self.prop_effic, self.cruise_speed_m_p_s, cruise_L_p_D)
             self.power_draw_kw = calc_cruise_electric_power_k_W(cruise_shaft_power_k_w, self.epu_effic)
-            
+
             # Energy
             self.energy_kwh = self.power_draw_kw * self.duration_s * H_PER_S
             
@@ -680,12 +753,12 @@ class JettisonCruiseSegment(CruiseSegment):
             aircraft.base_cd0 -= boom_cd0
             
             try:
-                # Calculate performance with modified aircraft (but skip the super().calculate_performance)
-                # since we need to use adjusted battery capacity
+                # Calculate performance with modified aircraft but use adjusted cruise distance
                 current_mtow_kg = aircraft.mtow_kg
                 cruise_L_p_D = aircraft.cruise_L_p_D
                 
-                self.duration_s = self.target_range_km * 1000.0 / self.cruise_speed_m_p_s
+                # Use adjusted cruise distance for duration calculation in fallback method
+                self.duration_s = self.actual_cruise_distance_km * 1000.0 / self.cruise_speed_m_p_s
                 
                 # Power calc
                 cruise_shaft_power_k_w = calc_cruise_shaft_power_k_W(current_mtow_kg, g, self.prop_effic, self.cruise_speed_m_p_s, cruise_L_p_D)
@@ -724,14 +797,14 @@ class ReserveSegment(MissionSegment):
         """Calculates reserve performance."""
 
         current_mtow_kg = aircraft.mtow_kg # Using current MTOW
-        batt_capacity_kwh = aircraft.get_EOL_battery_capacity_kwh()
+        batt_capacity_kwh = aircraft.get_current_usable_EOL_kwh()
         cruise_L_p_D = aircraft.cruise_L_p_D
         disk_area = aircraft.get_rotor_disk_area_m2()
 
         # Calculate Reserve Hover 
         hover_shaft_power_kw = calc_hover_shaft_power_k_W(current_mtow_kg, g, self.rho_sl, self.fom, disk_area)
         hover_power_kw = calc_hover_electric_power_k_W(self.epu_effic, hover_shaft_power_kw)
-        hover_energy_kwh = calc_reserve_hover_energy_k_W_h(hover_power_kw, self.reserve_hover_dur_s)
+        hover_energy_kwh = calc_hover_energy_k_W_h(hover_power_kw, self.reserve_hover_dur_s)
         hover_c_rate = calc_batt_C_rate(batt_capacity_kwh, hover_power_kw)
 
         # Calculate Reserve Cruise 
@@ -755,7 +828,6 @@ class ReserveSegment(MissionSegment):
 class Mission:
     """Defines and simulates a complete mission profile."""
     def __init__(self, aircraft: Aircraft, mission_segments: list[MissionSegment]):
-
         self.aircraft = aircraft
         self.mission_segments = copy.deepcopy(mission_segments)
         self.time_points_s: list[float] = []
@@ -766,6 +838,7 @@ class Mission:
         self.total_energy_kwh: float = 0.0
         self.max_power_kw: float = 0.0
         self.max_c_rate: float = 0.0
+        self.total_horizontal_distance_km: float = 0.0  # Track total horizontal distance
         self.is_calculated = False
 
     def run_mission(self):
@@ -781,19 +854,43 @@ class Mission:
         last_segment_c_rate = 0.0 
 
         print(f"Running mission simulation for Aircraft with MTOW: {self.aircraft.mtow_kg:.2f} kg")
-        print(f"EOL Battery Capacity: {self.aircraft.get_EOL_battery_capacity_kwh():.2f} kWh")
+        print(f"EOL Battery Capacity: {self.aircraft.get_current_usable_EOL_kwh():.2f} kWh")
         print("-" * 30)
 
+        previous_horizontal_distance_km = 0.0
+        total_horizontal_distance_km = 0.0  # Initialize total horizontal distance tracker
+        
         for i, segment in enumerate(self.mission_segments):
             print(f"Calculating Segment {i+1}: {segment.segment_type}...")
             segment_start_time = current_time_s
 
+            # Check if previous segment was a climb to account for horizontal distance
+            if i > 0 and isinstance(self.mission_segments[i-1], ClimbSegment) and isinstance(segment, CruiseSegment):
+                previous_horizontal_distance_km = self.mission_segments[i-1].horizontal_distance_km
+                print(f"  Using horizontal distance from previous climb: {previous_horizontal_distance_km:.2f} km")
+            
             # Calculate Performance 
             try:
-                segment.calculate_performance(self.aircraft)
+                if isinstance(segment, CruiseSegment) and previous_horizontal_distance_km > 0:
+                    segment.calculate_performance(self.aircraft, previous_horizontal_distance_km)
+                    # Track horizontal distance from cruise segment
+                    total_horizontal_distance_km += segment.actual_cruise_distance_km
+                    print(f"  Total horizontal distance so far: {total_horizontal_distance_km:.2f} km")
+                else:
+                    segment.calculate_performance(self.aircraft)
+                
+                # Store horizontal distance if this is a climb segment
+                if isinstance(segment, ClimbSegment):
+                    previous_horizontal_distance_km = segment.horizontal_distance_km
+                    total_horizontal_distance_km += segment.horizontal_distance_km
+                    print(f"  Total horizontal distance so far: {total_horizontal_distance_km:.2f} km")
+                elif isinstance(segment, CruiseSegment) and not hasattr(segment, 'actual_cruise_distance_km'):
+                    # If it's a cruise segment without adjusted distance (no prior climb)
+                    total_horizontal_distance_km += segment.target_range_km
+                    print(f"  Total horizontal distance so far: {total_horizontal_distance_km:.2f} km")
+                
             except Exception as e:
                  print(f"  ERROR calculating performance for segment {i+1} ({segment.segment_type}): {e}")
-
                  segment.duration_s = 0.0
                  segment.power_draw_kw = 0.0
                  segment.energy_kwh = 0.0
@@ -917,6 +1014,10 @@ class Mission:
             print(f"  Profile cleanup complete. Final points: {len(self.time_points_s)}")
 
 
+        # Store the total horizontal distance
+        self.total_horizontal_distance_km = total_horizontal_distance_km
+        print(f"Total horizontal distance traveled: {self.total_horizontal_distance_km:.2f} km")
+        
         self.is_calculated = True
         print("-" * 30)
         print("Mission calculation complete.")
@@ -951,6 +1052,7 @@ class Mission:
         summary_data = [
             ["Total Duration", f"{self.total_duration_s:.1f} s"],
             ["Total Energy", f"{self.total_energy_kwh:.3f} kWh"],
+            ["Total Horizontal Distance", f"{self.total_horizontal_distance_km:.2f} km"],
             ["Max Power Draw", f"{self.max_power_kw:.2f} kW"],
             ["Max C-Rate", f"{self.max_c_rate:.2f}"],
         ]
@@ -999,16 +1101,6 @@ class ShorterRangeMission(Mission):
         self.shorter_range_km = shorter_range_km # Store for reference
 
 
-def calc_hover_shaft_power_k_W(max_takeoff_wt_kg,g_m_p_s2,air_density_sea_level_kg_p_m3,hover_fom,disk_area_m2):
-    thrust_n = max_takeoff_wt_kg * g_m_p_s2
-    power_den_sqrt_term = 2 * air_density_sea_level_kg_p_m3 * disk_area_m2
-    power_den = math.sqrt(power_den_sqrt_term) * hover_fom
-    power_num = thrust_n**1.5
-    return power_num / power_den / 1000.0 # Convert W to kW
-
-def calc_hover_electric_power_k_W(epu_effic,hover_shaft_power_k_W):
-    return hover_shaft_power_k_W / epu_effic
-
 def calc_hover_energy_k_W_h(hover_electric_power_k_W,equiv_hover_dur_s):
     return hover_electric_power_k_W * equiv_hover_dur_s * H_PER_S
 
@@ -1040,24 +1132,9 @@ def calc_power_at_speed_climbing_k_W(
 
     return electric_power_req_kw
 
-def calc_climb_energy_k_W_h(climb_electric_power_avg_k_W, climb_time_s):
-    return climb_electric_power_avg_k_W * climb_time_s * H_PER_S
-
-def calc_cruise_shaft_power_k_W(max_takeoff_wt_kg,g_m_p_s2,prop_effic,cruise_speed_m_p_s,cruise_L_p_D):
-    thrust_req_n = (max_takeoff_wt_kg * g_m_p_s2) / cruise_L_p_D
-    shaft_power_w = (thrust_req_n * cruise_speed_m_p_s) / prop_effic
-    return shaft_power_w / 1000.0 # Convert W to kW
-
-def calc_cruise_electric_power_k_W(cruise_shaft_power_k_w,epu_effic):
-    return cruise_shaft_power_k_w / epu_effic
-
 def calc_reserve_hover_energy_k_W_h(hover_electric_power_k_W,reserve_hover_dur_s):
     return reserve_hover_dur_s * hover_electric_power_k_W * H_PER_S
 
 def calc_reserve_cruise_energy_k_W_h(cruise_speed_m_p_s,reserve_range_km,cruise_electric_power_k_W):
     reserve_cruise_time_s = reserve_range_km * 1000.0 / cruise_speed_m_p_s
     return cruise_electric_power_k_W * reserve_cruise_time_s * H_PER_S
-
-def calc_batt_C_rate(batt_rated_energy_k_W_h, electric_power_k_W):
-    return electric_power_k_W / batt_rated_energy_k_W_h
-

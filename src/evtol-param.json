@@ -20,7 +20,7 @@
   "batt_inacc_energy_frac": 0.035714286,
   "system_voltage": 710.0,
   "max_dod":0.8,
-  "battery_max_c_rate": 5, 
+  "battery_max_c_rate": 6, 
 
  
   "epu_effic": 0.92,

@@ -328,7 +328,7 @@ class JettisonCruiseSegment(CruiseSegment):
             if total_battery_mass > 0:
                 battery_mass_fraction = battery_mass_reduction / total_battery_mass
                 battery_capacity_reduction = original_batt_capacity * battery_mass_fraction
-                adjusted_battery_capacity = original_batt_capacity - battery_capacity_reduction
+                adjusted_battery_capacity = original_batt_capacity - battery_mass_reduction * 129.4
             
             print(f"  Jettisoning {boom_count} booms ({boom_mass:.2f} kg), {lift_rotor_count} lift rotors ({lift_rotor_mass:.2f} kg)")
             print(f"  Jettisoning {battery_mass_reduction:.2f} kg of battery mass ({battery_capacity_reduction:.2f} kWh)")
@@ -725,33 +725,7 @@ class JettisonCruiseSegment(CruiseSegment):
             aircraft.mtow_kg = original_mtow
             aircraft.base_cd0 = original_cd0
             
-        except Exception as e:
-            print(f"  Error in jettison cruise calculation: {e}")
-            print("  Using fallback method...")
-            
-            # Fallback approach with hard-coded estimates
-            battery_mass_reduction = self.jettison_config.get('battery_mass_kg', 0)
-            boom_mass = self.jettison_config.get('boom_count', 0) * 15.0  # CHANGE SHOULD GET THESE FROM ROTOR/ BOOM CLASSES
-            lift_rotor_mass = self.jettison_config.get('lift_rotor_count', 0) * 10.0  
-            boom_cd0 = self.jettison_config.get('boom_count', 0) * 0.0018  
-            
-            total_mass_reduction = boom_mass + lift_rotor_mass + battery_mass_reduction
-            
-            # Estimate capacity reduction based on battery mass
-            # Assume 200 Wh/kg energy density for the battery
-            battery_capacity_reduction = battery_mass_reduction * .129  # CHANGE THIS TO GET FROM BATTERY CLASS
-            adjusted_battery_capacity = original_batt_capacity - battery_capacity_reduction
-            
-            print(f"  Using estimated values:")
-            print(f"  - Battery capacity reduction: {battery_capacity_reduction:.2f} kWh")
-            print(f"  - Remaining battery capacity: {adjusted_battery_capacity:.2f} kWh")
-            print(f"  - Total mass reduction: {total_mass_reduction:.2f} kg")
-            print(f"  - Drag reduction: CD0 -{boom_cd0:.6f}")
-            
-            # Temporarily modify aircraft properties
-            aircraft.mtow_kg -= total_mass_reduction
-            aircraft.base_cd0 -= boom_cd0
-            
+        except Exception as e:  
             try:
                 # Calculate performance with modified aircraft but use adjusted cruise distance
                 current_mtow_kg = aircraft.mtow_kg

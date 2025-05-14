@@ -134,17 +134,18 @@ if __name__ == '__main__':
             # Configuration for jettisoning components
             jettison_rotor_type_to_drop = "lift"  # Options: "lift" or "tilt"
             jettison_rotor_number_to_drop = 4     # Number of selected rotors to jettison
-            battery_mass_to_jettison_kg = 800.0   # Mass of battery to jettison
+            battery_mass_to_jettison_kg = 376.0   # Mass of battery to jettison
 
             jettison_config = {
                 "boom_count": jettison_rotor_number_to_drop,  # Assuming one boom per jettisoned rotor
-                "jettison_rotor_type": jettison_rotor_type_to_drop,
-                "jettison_rotor_count": jettison_rotor_number_to_drop,
+                "lift_rotor_count": jettison_rotor_number_to_drop if jettison_rotor_type_to_drop == "lift" else 0,
+                "tilt_rotor_count": jettison_rotor_number_to_drop if jettison_rotor_type_to_drop == "tilt" else 0,
                 "battery_mass_kg": battery_mass_to_jettison_kg
             }
 
             print(f"This mission will jettison {jettison_config['boom_count']} booms, "
-                  f"{jettison_config['jettison_rotor_count']} {jettison_config['jettison_rotor_type']} rotors, "
+                  f"{jettison_config['lift_rotor_count']} lift rotors, "
+                  f"{jettison_config['tilt_rotor_count']} tilt rotors, "
                   f"and {jettison_config['battery_mass_kg']:.1f} kg of battery mass before cruise")
             
             # Create jettison mission segments
@@ -164,7 +165,8 @@ if __name__ == '__main__':
             # Run ABU jettison mission at climb start
             print("\n--- Creating and Running ABU Jettison at Climb Mission ---")
             print(f"This mission will jettison {jettison_config['boom_count']} booms, "
-                  f"{jettison_config['jettison_rotor_count']} {jettison_config['jettison_rotor_type']} rotors, "
+                  f"{jettison_config['lift_rotor_count']} lift rotors, "
+                  f"{jettison_config['tilt_rotor_count']} tilt rotors, "
                   f"and {jettison_config['battery_mass_kg']:.1f} kg of battery mass before climb")
             
             # Create jettison mission segments for climb

@@ -19,7 +19,7 @@ from tabulate import tabulate
 
 W_PER_KW = 1000.0
 DEFAULT_JSON_PATH = "evtol-param.json"
-def size_aircraft(path_to_json, max_iterations=1000, tolerance=0.1, damping=0.3, display_results=True):
+def size_aircraft(path_to_json, max_iterations=10000, tolerance=0.1, damping=0.3, display_results=True):
     if display_results:
         print("--- eVTOL Aircraft Sizing Simulation ---")
         print(f"Using configuration file: {path_to_json}")
@@ -122,43 +122,6 @@ def size_aircraft(path_to_json, max_iterations=1000, tolerance=0.1, damping=0.3,
         # it captures any components that may have been updated during the mission
         final_mtow = aircraft.CalculateMTOW()
         print(f"  Final MTOW after mission simulation: {final_mtow:.2f} kg")
-        
-        # Add a final convergence loop to ensure MTOW is completely stable
-        print("\n=== Starting Final MTOW Convergence Loop ===")
-        final_convergence_iters = 0
-        final_max_iters = 5  # Usually 2-3 iterations should be enough
-        final_mtow_prev = final_mtow
-        final_mtow_converged = False
-        
-        while final_convergence_iters < final_max_iters and not final_mtow_converged:
-            # Update aircraft state with latest MTOW
-            print(f"  Final convergence iteration {final_convergence_iters + 1}...")
-            aircraft.mtow_kg = final_mtow
-            aircraft.update_state_for_iteration(final_mtow)
-            
-            # Re-run the mission
-            print(f"  Re-running mission with MTOW: {final_mtow:.2f} kg")
-            mission.run_mission()
-            
-            # Recalculate MTOW
-            new_final_mtow = aircraft.CalculateMTOW()
-            mtow_diff = abs(new_final_mtow - final_mtow_prev)
-            print(f"  Updated MTOW: {new_final_mtow:.2f} kg (change: {mtow_diff:.2f} kg)")
-            
-            # Check for convergence
-            if mtow_diff < tolerance:
-                print(f"  Final MTOW convergence achieved after {final_convergence_iters + 1} iterations")
-                final_mtow_converged = True
-            
-            final_mtow = new_final_mtow
-            final_mtow_prev = final_mtow
-            final_convergence_iters += 1
-        
-        if not final_mtow_converged:
-            print(f"  Warning: Final MTOW did not fully converge after {final_max_iters} iterations")
-            print(f"  Using final value: {final_mtow:.2f} kg")
-        
-        print("=== Final MTOW Convergence Loop Complete ===\n")
         
         return aircraft, mission, final_mtow, converged
 
@@ -322,7 +285,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-i", "--max_iter",
-        type=int, default=10000
+        type=int, default=1000
     )
     parser.add_argument(
         "-t", "--tolerance",
@@ -330,7 +293,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-d", "--damping",
-        type=float, default=0.3
+        type=float, default=0.1
     )
     args = parser.parse_args()
 

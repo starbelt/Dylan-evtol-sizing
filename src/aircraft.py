@@ -508,6 +508,34 @@ class Aircraft:
 
         aircraft_state['single_epu_weight_kg'] = single_epu_weight_kg
 
+        # Always calculate EPU weight based on current MTOW instead of using initial value
+        rotor_diameter_m = self._varlist["rotor_diameter_m"]
+        sound_speed_m_p_s = self._varlist["sound_speed_m_p_s"]
+        tip_mach = self._varlist["tip_mach"]
+        total_rotor_count = self._varlist["rotor_count"]
+        rho_sl = self._varlist["air_density_sea_level_kg_p_m3"]
+        rho_min = self._varlist["air_density_min_kg_p_m3"]
+        fom = self._varlist["fom"]
+
+        self.rotor_RPM_hover = self.calc_rotor_RPM_hover(sound_speed_m_p_s, rotor_diameter_m, tip_mach)
+        hover_omega_rad_s = self.rotor_RPM_hover * math.pi / 30.0
+        initial_rotor_disk_area = total_rotor_count * math.pi * (rotor_diameter_m / 2)**2
+        total_hover_shaft_power_kw = calc_hover_shaft_power_k_W(self.mtow_kg, self.g_m_p_s2, rho_sl, fom, initial_rotor_disk_area)
+        hover_power_per_rotor_kw = total_hover_shaft_power_kw / total_rotor_count
+        hover_torque_per_rotor_nm = (hover_power_per_rotor_kw * W_PER_KW) / hover_omega_rad_s
+
+        over_torque_factor = total_rotor_count / (total_rotor_count - 2.0) + 0.3
+
+        max_torque_per_rotor_nm = over_torque_factor * hover_torque_per_rotor_nm
+        max_rpm = self.rotor_RPM_hover * math.sqrt(over_torque_factor) * math.sqrt(rho_sl / rho_min)
+        max_power_per_rotor_kw = (max_torque_per_rotor_nm * max_rpm * math.pi / 30.0 / W_PER_KW)
+
+        single_epu_weight_kg = calc_single_EPU_weight_kg(max_torque_per_rotor_nm, max_power_per_rotor_kw)
+        self._varlist['single_epu_weight_kg_sized'] = single_epu_weight_kg
+        print(f"  Calculated EPU Weight: {single_epu_weight_kg:.2f} kg (P={max_power_per_rotor_kw:.2f} kW, T={max_torque_per_rotor_nm:.1f} Nm)")
+
+        aircraft_state['single_epu_weight_kg'] = single_epu_weight_kg
+
         # Updates wing first
         wing_component = next((c for c in self.components if isinstance(c, Wing)), None)
         if wing_component:
@@ -568,7 +596,7 @@ class Aircraft:
         print("============================================\n")
 
         self.base_cd0 = component_Cd0_sum
-        self.Cd0_total_parasite = self.base_cd0 * self.excres_protub_factor
+        self.Cd0_total_parasite = self.base_cd0 
 
         # Calculate cruise performance
         cruise_speed = self._varlist.get('cruise_speed_m_p_s')
@@ -581,7 +609,7 @@ class Aircraft:
         print(f"Cruise Lift Coefficient (CL_cruise): {self.CL_cruise:.4f}")
 
         self.Cdi_cruise = self.calc_Cdi(self.spac_effic_factor, ar, self.CL_cruise)
-        self.Cd_cruise = (self.Cd0_total_parasite + self.Cdi_cruise) * self.trim_drag_factor
+        self.Cd_cruise = (self.Cd0_total_parasite + self.Cdi_cruise) * self.trim_drag_factor * self.excres_protub_factor
         self.cruise_L_p_D = self.CL_cruise / self.Cd_cruise
 
         self.rotor_disk_area_total_m2 = current_total_disk_area

@@ -79,9 +79,9 @@ class Battery(AircraftComponent):
         self.weight = self.final_batt_mass_kg
 
         # Calculate Cell Configuration based on Mass 
-        self.cells_series = math.floor(self.system_voltage / self.cell_voltage)
+        self.cells_series = math.ceil(self.system_voltage / self.cell_voltage)
         self.total_cell_mass_kg = self.final_batt_mass_kg * self.cell_to_pack_mass_ratio
-        initial_cell_count_estimate = math.floor(self.total_cell_mass_kg / self.cell_mass_kg) 
+        initial_cell_count_estimate = math.ceil(self.total_cell_mass_kg / self.cell_mass_kg) 
 
         self.cells_parallel = (initial_cell_count_estimate // self.cells_series) + 1
         self.cell_count = self.cells_series * self.cells_parallel # Final cell count
